@@ -1,29 +1,78 @@
 @import "tailwindcss";
 
+:root {
+  --color-1: #0E2F33; /* Deep Spruce Teal - Headers, dark backgrounds, high contrast */
+  --color-2: #1D5459; /* Forest Teal - Primary action buttons, active states, key cards */
+  --color-3: #7FA3A0; /* Sage / Soft Teal - Subtle borders, secondary accents, muted text */
+  --color-4: #E6D6B8; /* Warm Sand / Cream - Contrast surfaces, warm badges, subtle panels */
+  --color-5: #B08B4F; /* Bronze Gold - Rebate balances, discount metrics, luxury badges */
+
+  /* Neutral tones harmonious with the palette */
+  --bg-canvas: #f8faf9;
+  --surface-card: #ffffff;
+  --text-primary: #0E2F33;
+  --text-secondary: #4a6365;
+}
+
 @layer base {
   body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Tahoma, Arial, sans-serif;
   }
 }
 
-/* Custom scrollbars */
+/* Custom Luxury Scrollbars */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #f0f4f4;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
+  background: #7FA3A0;
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #1D5459;
+}
+
+/* Custom Theme Classes */
+.bg-spruce-900 { background-color: #0E2F33; }
+.bg-spruce-800 { background-color: #143e43; }
+.bg-teal-forest { background-color: #1D5459; }
+.bg-teal-forest-hover:hover { background-color: #154145; }
+.bg-sage-soft { background-color: #7FA3A0; }
+.bg-sand-warm { background-color: #E6D6B8; }
+.bg-sand-light { background-color: #f7f3ec; }
+.bg-gold-bronze { background-color: #B08B4F; }
+.bg-gold-bronze-hover:hover { background-color: #9a7840; }
+
+.text-spruce-900 { color: #0E2F33; }
+.text-teal-forest { color: #1D5459; }
+.text-sage-soft { color: #5a7b78; }
+.text-sand-warm { color: #8c764e; }
+.text-gold-bronze { color: #B08B4F; }
+
+.border-spruce-900 { border-color: #0E2F33; }
+.border-teal-forest { border-color: #1D5459; }
+.border-sage-soft { border-color: #7FA3A0; }
+.border-sand-warm { border-color: #E6D6B8; }
+.border-gold-bronze { border-color: #B08B4F; }
+
+/* Subtle elevation shadow */
+.shadow-corporate {
+  box-shadow: 0 4px 20px -2px rgba(14, 47, 51, 0.06), 0 2px 6px -1px rgba(14, 47, 51, 0.04);
+}
+
+.shadow-corporate-lg {
+  box-shadow: 0 10px 30px -4px rgba(14, 47, 51, 0.1), 0 4px 10px -2px rgba(14, 47, 51, 0.05);
 }
 
 /* Print styles for statement printing */

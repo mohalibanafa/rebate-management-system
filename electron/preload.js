@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   getEmailQueueStatus: () => ipcRenderer.invoke('email:queue-status'),
+  getRecentEmails: () => ipcRenderer.invoke('email:recent'),
+  testSmtpConnection: (config) => ipcRenderer.invoke('email:test-smtp', config),
+  sendTestEmail: (targetEmail, config) => ipcRenderer.invoke('email:send-test', { targetEmail, config }),
+  sendWelcomeEmail: (customerId) => ipcRenderer.invoke('email:send-welcome', customerId),
+  resendEmail: (queueId) => ipcRenderer.invoke('email:resend', queueId),
+  backupDatabase: () => ipcRenderer.invoke('db:backup'),
 
   // Print & PDF
   printStatement: () => ipcRenderer.invoke('app:print-statement'),

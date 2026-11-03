@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, PlusCircle, Archive, Settings, Database, 
-  AlertTriangle, ShieldAlert, Sparkles, Building2
+  ShieldAlert, Sparkles, Building2, Server
 } from 'lucide-react';
 import CustomersDirectory from './components/CustomersDirectory';
 import FastTransactionEntry from './components/FastTransactionEntry';
+import SettingsView from './components/SettingsView';
 import YearCloseModal from './components/YearCloseModal';
-import SettingsModal from './components/SettingsModal';
 
 // Mock fallback for browser-only development preview if not running in Electron
 if (typeof window !== 'undefined' && !window.api) {
@@ -67,25 +67,32 @@ if (typeof window !== 'undefined' && !window.api) {
     updatePayment: async () => ({ id: 1 }),
     createAdjustment: async () => ({ id: 1 }),
     updateAdjustment: async () => ({ id: 1 }),
-    getSettings: async () => ({ company_name: 'مؤسسة الحلول التجارية', smtp_config: null }),
+    getSettings: async () => ({ company_name: 'مؤسسة الحلول التجارية', smtp_config: null, default_rate: 7, default_grace: 30 }),
     saveSettings: async () => true,
-    getEmailQueueStatus: async () => [],
+    getEmailQueueStatus: async () => ([{ status: 'SENT', count: 12 }, { status: 'PENDING', count: 0 }]),
+    getRecentEmails: async () => ([
+      { id: 1, recipient_email: 'client@example.com', subject: 'إشعار صدور فاتورة جديدة', reference_type: 'INVOICE', status: 'SENT', created_at: '2026-06-01' }
+    ]),
+    testSmtpConnection: async () => ({ success: true, message: 'تم الاتصال بالخادم بنجاح!' }),
+    sendTestEmail: async () => ({ success: true }),
+    sendWelcomeEmail: async () => ({ success: true }),
+    resendEmail: async () => true,
+    backupDatabase: async () => 'backup.db',
     printStatement: async () => window.print(),
     exportStatementPDF: async () => 'كشف_حساب.pdf'
   };
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('CUSTOMERS'); // 'CUSTOMERS' | 'ENTRY'
+  const [activeTab, setActiveTab] = useState('CUSTOMERS'); // 'CUSTOMERS' | 'ENTRY' | 'SETTINGS'
   const [preselectedCustomerId, setPreselectedCustomerId] = useState(null);
 
   // Database and Archive state
   const [dbStatus, setDbStatus] = useState({ isReadOnly: false, fileName: 'rebate_system_active.db' });
   const [availableDbs, setAvailableDbs] = useState([]);
 
-  // Modals
+  // Year Close Modal
   const [isYearCloseOpen, setIsYearCloseOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   useEffect(() => {
     loadDatabaseInfo();
@@ -107,7 +114,6 @@ export default function App() {
       const updatedStatus = await window.api.switchDatabase(dbItem.path, dbItem.isReadOnly);
       setDbStatus(updatedStatus);
       await loadDatabaseInfo();
-      // Reset active selections
       setPreselectedCustomerId(null);
     } catch (err) {
       alert('خطأ أثناء تبديل قاعدة البيانات: ' + err.message);
@@ -120,9 +126,9 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col text-slate-800">
+    <div className="min-h-screen bg-slate-50 flex flex-col text-spruce-900 font-sans">
       
-      {/* Read-Only Archive Banner if viewing past year */}
+      {/* Archive Warning Banner */}
       {dbStatus.isReadOnly && (
         <div className="bg-amber-600 text-white px-4 py-2 text-xs font-bold flex items-center justify-center gap-2 shadow-inner">
           <ShieldAlert className="w-4 h-4 animate-pulse" />
@@ -139,44 +145,44 @@ export default function App() {
         </div>
       )}
 
-      {/* Main App Navigation Bar */}
-      <header className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-30">
+      {/* Main Luxury Corporate Navigation Bar */}
+      <header className="bg-spruce-900 border-b border-teal-forest shadow-corporate sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
           
           {/* Logo & App Title */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-800 rounded-xl flex items-center justify-center text-white shadow-md">
-              <Sparkles className="w-6 h-6" />
+            <div className="w-10 h-10 bg-teal-forest border border-sand-warm/30 rounded-xl flex items-center justify-center text-sand-warm shadow-md">
+              <Sparkles className="w-5 h-5 text-gold-bronze" />
             </div>
             <div>
-              <h1 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
+              <h1 className="text-base font-black text-sand-warm tracking-wide flex items-center gap-2">
                 نظام إدارة خصم تعجيل الدفع المجمع
-                <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                <span className="text-[10px] font-bold bg-gold-bronze text-spruce-900 px-2 py-0.5 rounded-full">
                   Rebate System
                 </span>
               </h1>
-              <p className="text-xs text-slate-500 font-medium">
+              <p className="text-xs text-sage-soft font-medium">
                 توزيع السيولة بأسلوب FIFO • الاحتساب اللحظي المباشر • أرشفة سنوية
               </p>
             </div>
           </div>
 
-          {/* Database Selector & Controls */}
+          {/* Database Selector & Top Actions */}
           <div className="flex items-center gap-3">
             
-            {/* Database / Archive Selector Dropdown */}
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5 text-xs">
-              <Database className="w-4 h-4 text-blue-600 flex-shrink-0" />
+            {/* Database Selector Dropdown */}
+            <div className="flex items-center gap-2 bg-spruce-800 border border-teal-forest rounded-xl px-3 py-1.5 text-xs text-sand-warm">
+              <Database className="w-4 h-4 text-gold-bronze flex-shrink-0" />
               <select
                 value={availableDbs.find(d => d.isActive)?.id || 'active'}
                 onChange={(e) => {
                   const target = availableDbs.find(d => d.id === e.target.value);
                   if (target) handleSwitchDatabase(target);
                 }}
-                className="bg-transparent font-bold text-slate-700 focus:outline-none cursor-pointer"
+                className="bg-transparent font-bold text-sand-warm focus:outline-none cursor-pointer"
               >
                 {availableDbs.map((d) => (
-                  <option key={d.id} value={d.id}>
+                  <option key={d.id} value={d.id} className="bg-spruce-900 text-white">
                     {d.name}
                   </option>
                 ))}
@@ -187,36 +193,27 @@ export default function App() {
             {!dbStatus.isReadOnly && (
               <button
                 onClick={() => setIsYearCloseOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold transition"
-                title="إغلاق السنة المالية وتصدير كشوفات PDF دفعة واحدة"
+                className="flex items-center gap-1.5 px-3 py-2 bg-teal-forest hover:bg-teal-forest-hover text-sand-warm border border-sage-soft/30 rounded-xl text-xs font-bold transition shadow-sm"
+                title="إغلاق السنة المالية وتجميد الأرشيف"
               >
-                <Archive className="w-4 h-4 text-amber-600" />
+                <Archive className="w-4 h-4 text-gold-bronze" />
                 إغلاق السنة والأرشفة
               </button>
             )}
-
-            {/* Settings Button */}
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition"
-              title="إعدادات النظام وخادم البريد"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
           </div>
         </div>
 
-        {/* Tab Navigation Switcher */}
-        <div className="max-w-7xl mx-auto px-6 flex gap-6 text-sm border-t border-slate-100">
+        {/* 3 Main Corporate Tabs */}
+        <div className="max-w-7xl mx-auto px-6 flex gap-8 text-xs border-t border-teal-forest/40">
           <button
             onClick={() => setActiveTab('CUSTOMERS')}
             className={`py-3 px-2 font-bold flex items-center gap-2 border-b-2 transition ${
               activeTab === 'CUSTOMERS'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'border-gold-bronze text-sand-warm'
+                : 'border-transparent text-sage-soft hover:text-sand-warm'
             }`}
           >
-            <Users className="w-4 h-4" />
+            <Users className="w-4 h-4 text-gold-bronze" />
             دليل العملاء وكشوفات الحساب
           </button>
 
@@ -224,49 +221,59 @@ export default function App() {
             onClick={() => setActiveTab('ENTRY')}
             className={`py-3 px-2 font-bold flex items-center gap-2 border-b-2 transition ${
               activeTab === 'ENTRY'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'border-gold-bronze text-sand-warm'
+                : 'border-transparent text-sage-soft hover:text-sand-warm'
             }`}
           >
-            <PlusCircle className="w-4 h-4" />
+            <PlusCircle className="w-4 h-4 text-gold-bronze" />
             الإدخال السريع للحركات
+          </button>
+
+          <button
+            onClick={() => setActiveTab('SETTINGS')}
+            className={`py-3 px-2 font-bold flex items-center gap-2 border-b-2 transition ${
+              activeTab === 'SETTINGS'
+                ? 'border-gold-bronze text-sand-warm'
+                : 'border-transparent text-sage-soft hover:text-sand-warm'
+            }`}
+          >
+            <Settings className="w-4 h-4 text-gold-bronze" />
+            الإعدادات والنظام المؤسسي
           </button>
         </div>
       </header>
 
-      {/* Main Content Area */}
+      {/* Main Screen Content */}
       <main className="max-w-7xl mx-auto px-6 py-6 flex-1 w-full">
         {activeTab === 'CUSTOMERS' ? (
           <CustomersDirectory
             onSelectCustomerForEntry={handleSelectCustomerForEntry}
             isReadOnly={dbStatus.isReadOnly}
           />
-        ) : (
+        ) : activeTab === 'ENTRY' ? (
           <FastTransactionEntry
             preselectedCustomerId={preselectedCustomerId}
-            onTransactionSaved={() => {
-              // Can optionally reload or keep ready for next
-            }}
+            onTransactionSaved={() => {}}
+            isReadOnly={dbStatus.isReadOnly}
+          />
+        ) : (
+          <SettingsView
+            onOpenYearClose={() => setIsYearCloseOpen(true)}
             isReadOnly={dbStatus.isReadOnly}
           />
         )}
       </main>
 
-      {/* Footer */}
+      {/* Corporate Footer */}
       <footer className="bg-white border-t border-slate-200 py-3 text-center text-xs text-slate-400 no-print">
-        نظام إدارة خصم تعجيل الدفع المجمع © {new Date().getFullYear()} • جميع الحقوق محفوظة
+        نظام إدارة خصم تعجيل الدفع المجمع © {new Date().getFullYear()} • النسخة المؤسسية المتكاملة
       </footer>
 
-      {/* Modals */}
+      {/* Year Close Modal */}
       <YearCloseModal
         isOpen={isYearCloseOpen}
         onClose={() => setIsYearCloseOpen(false)}
         onSuccess={loadDatabaseInfo}
-      />
-
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
       />
     </div>
   );

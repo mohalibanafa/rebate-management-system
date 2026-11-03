@@ -564,6 +564,20 @@ function getPendingEmails(limit = 5) {
   `).all(limit);
 }
 
+function getRecentEmails(limit = 25) {
+  const db = getDb();
+  return db.prepare(`
+    SELECT * FROM email_queue ORDER BY id DESC LIMIT ?
+  `).all(limit);
+}
+
+function resendEmail(id) {
+  const db = getDb();
+  return db.prepare(`
+    UPDATE email_queue SET status = 'PENDING', error_message = NULL WHERE id = ?
+  `).run(id);
+}
+
 function markEmailSent(id) {
   const db = getDb();
   return db.prepare(`
@@ -617,6 +631,8 @@ module.exports = {
   getInvoicesForCustomer,
   queueEmail,
   getPendingEmails,
+  getRecentEmails,
+  resendEmail,
   markEmailSent,
   markEmailFailed,
   getSetting,

@@ -2,7 +2,14 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const dbModule = require('../src/db/database');
-const { startEmailWorker, stopEmailWorker } = require('../src/mail/mailWorker');
+const { 
+  startEmailWorker, 
+  stopEmailWorker, 
+  processEmailQueue,
+  testSmtpConnection, 
+  sendTestEmail, 
+  sendWelcomeEmail 
+} = require('../src/mail/mailWorker');
 
 let mainWindow = null;
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -193,6 +200,44 @@ function registerIpcHandlers() {
       SELECT status, COUNT(*) as count FROM email_queue GROUP BY status
     `).all();
     return counts;
+  });
+
+  ipcMain.handle('email:recent', async () => {
+    return dbModule.getRecentEmails(25);
+  });
+
+  ipcMain.handle('email:test-smtp', async (e, config) => {
+    return testSmtpConnection(config);
+  });
+
+  ipcMain.handle('email:send-test', async (e, { targetEmail, config }) => {
+    return sendTestEmail(targetEmail, config);
+  });
+
+  ipcMain.handle('email:send-welcome', async (e, customerId) => {
+    return sendWelcomeEmail(customerId);
+  });
+
+  ipcMain.handle('email:resend', async (e, queueId) => {
+    dbModule.resendEmail(queueId);
+    processEmailQueue();
+    return true;
+  });
+
+  ipcMain.handle('db:backup', async () => {
+    if (!mainWindow) return null;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const { filePath } = await dialog.showSaveDialog(mainWindow, {
+      title: 'حفظ نسخة احتياطية من قاعدة البيانات',
+      defaultPath: path.join(app.getPath('documents'), `rebate_database_backup_${dateStr}.db`),
+      filters: [{ name: 'SQLite Database', extensions: ['db'] }]
+    });
+
+    if (filePath) {
+      fs.copyFileSync(defaultDbPath, filePath);
+      return filePath;
+    }
+    return null;
   });
 
   // Print & PDF

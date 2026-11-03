@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Users, Search, UserPlus, FileSpreadsheet, ArrowUpRight, 
-  DollarSign, TrendingUp, AlertCircle, Edit, Trash2, 
-  ExternalLink, Mail, Phone, Hash, CheckCircle2, FileText
+  Users, Search, UserPlus, DollarSign, TrendingUp, 
+  AlertCircle, Edit, Trash2, Mail, Phone, Hash, 
+  CheckCircle2, FileText, ArrowUpRight, Send, Sparkles, Check
 } from 'lucide-react';
 import CustomerStatementModal from './CustomerStatementModal';
 
@@ -27,6 +27,10 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
     default_grace_days: 30
   });
   const [modalError, setModalError] = useState(null);
+
+  // Welcome Email Sending State & Notifications
+  const [sendingWelcomeId, setSendingWelcomeId] = useState(null);
+  const [toastMessage, setToastMessage] = useState(null);
 
   useEffect(() => {
     loadCustomers();
@@ -72,8 +76,8 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
     setIsCustomerModalOpen(true);
   };
 
-  const handleSaveCustomer = async (e) => {
-    e.preventDefault();
+  const handleSaveCustomer = async (e, shouldSendWelcome = false) => {
+    if (e) e.preventDefault();
     setModalError(null);
 
     try {
@@ -86,16 +90,36 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
         default_grace_days: parseInt(customerForm.default_grace_days, 10)
       };
 
+      let savedCustomer;
       if (editingCustomer) {
-        await window.api.updateCustomer(editingCustomer.id, payload);
+        savedCustomer = await window.api.updateCustomer(editingCustomer.id, payload);
       } else {
-        await window.api.createCustomer(payload);
+        savedCustomer = await window.api.createCustomer(payload);
       }
 
       setIsCustomerModalOpen(false);
       await loadCustomers();
+
+      // If user requested to send welcome email upon saving
+      if (shouldSendWelcome && savedCustomer?.id) {
+        await handleSendWelcomeEmail(savedCustomer.id, savedCustomer.email);
+      } else {
+        showToast('تم حفظ بيانات العميل بنجاح.');
+      }
     } catch (err) {
       setModalError(err.message || 'حدث خطأ أثناء حفظ بيانات العميل.');
+    }
+  };
+
+  const handleSendWelcomeEmail = async (customerId, targetEmail) => {
+    try {
+      setSendingWelcomeId(customerId);
+      await window.api.sendWelcomeEmail(customerId);
+      showToast(`تم إرسال البريد الترحيبي بنظام الخصم الذكي بنجاح إلى: ${targetEmail}`);
+    } catch (err) {
+      alert(`تعذر إرسال البريد الترحيبي: ${err.message}`);
+    } finally {
+      setSendingWelcomeId(null);
     }
   };
 
@@ -106,9 +130,15 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
     try {
       await window.api.deleteCustomer(cust.id);
       await loadCustomers();
+      showToast('تم حذف العميل بنجاح.');
     } catch (err) {
       alert(err.message);
     }
+  };
+
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 4000);
   };
 
   const filteredCustomers = customers.filter(c =>
@@ -125,70 +155,79 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
   return (
     <div className="space-y-6">
       
-      {/* KPI Cards Row */}
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 left-6 z-50 bg-spruce-900 text-sand-warm px-5 py-3 rounded-xl shadow-corporate-lg border border-teal-forest flex items-center gap-2.5 text-xs font-bold animate-slide-up">
+          <CheckCircle2 className="w-4 h-4 text-gold-bronze" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Corporate KPI Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+        <div className="bg-white p-5 rounded-2xl shadow-corporate border border-slate-200/80">
           <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">صافي المبيعات الكلي</span>
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
-              <DollarSign className="w-5 h-5" />
+            <span className="text-xs font-bold text-spruce-900">صافي المبيعات الكلي</span>
+            <div className="p-2 bg-slate-50 text-teal-forest rounded-xl border border-slate-100">
+              <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-slate-800">
-            {totalNetSalesAll.toLocaleString()} <span className="text-xs font-normal text-slate-500">ر.س</span>
+          <div className="text-2xl font-black text-spruce-900 tracking-tight">
+            {totalNetSalesAll.toLocaleString()} <span className="text-xs font-normal text-slate-400">ر.س</span>
           </div>
-          <div className="text-xs text-slate-400 mt-1">إجمالي المبيعات بعد خصم المرتجعات</div>
+          <div className="text-[11px] text-slate-400 mt-1">إجمالي المبيعات بعد خصم المرتجعات</div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-          <div className="flex items-center justify-between text-emerald-600 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">إجمالي الخصم المجمع المعتمد</span>
-            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
-              <TrendingUp className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="text-2xl font-black text-emerald-600">
-            {totalRebateAll.toLocaleString()} <span className="text-xs font-normal text-slate-500">ر.س</span>
-          </div>
-          <div className="text-xs text-slate-400 mt-1">الرصيد المستحق للتسوية مع العملاء</div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-          <div className="flex items-center justify-between text-amber-600 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">المبالغ غير المسددة</span>
-            <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
-              <AlertCircle className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="text-2xl font-black text-amber-700">
-            {totalUnpaidAll.toLocaleString()} <span className="text-xs font-normal text-slate-500">ر.س</span>
-          </div>
-          <div className="text-xs text-slate-400 mt-1">إجمالي الفواتير المفتوحة لدى العملاء</div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+        <div className="bg-white p-5 rounded-2xl shadow-corporate border border-sand-warm/60 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-1.5 h-full bg-gold-bronze"></div>
           <div className="flex items-center justify-between text-slate-500 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">عدد العملاء المسجلين</span>
-            <div className="p-2 bg-purple-50 text-purple-600 rounded-xl">
-              <Users className="w-5 h-5" />
+            <span className="text-xs font-bold text-spruce-900">إجمالي الخصم المجمع المعتمد</span>
+            <div className="p-2 bg-sand-light text-gold-bronze rounded-xl border border-sand-warm/40">
+              <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-slate-800">
-            {customers.length} <span className="text-xs font-normal text-slate-500">عميل</span>
+          <div className="text-2xl font-black text-gold-bronze tracking-tight">
+            {totalRebateAll.toLocaleString()} <span className="text-xs font-normal text-slate-400">ر.س</span>
           </div>
-          <div className="text-xs text-slate-400 mt-1">قاعدة العملاء النشطة بالنظام</div>
+          <div className="text-[11px] text-slate-400 mt-1">الرصيد التراكمي المكتسب للتسوية السنوية</div>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl shadow-corporate border border-slate-200/80">
+          <div className="flex items-center justify-between text-slate-500 mb-2">
+            <span className="text-xs font-bold text-spruce-900">المبالغ غير المسددة</span>
+            <div className="p-2 bg-amber-50 text-amber-700 rounded-xl border border-amber-100">
+              <AlertCircle className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-amber-700 tracking-tight">
+            {totalUnpaidAll.toLocaleString()} <span className="text-xs font-normal text-slate-400">ر.س</span>
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1">إجمالي الفواتير المفتوحة لدى العملاء</div>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl shadow-corporate border border-slate-200/80">
+          <div className="flex items-center justify-between text-slate-500 mb-2">
+            <span className="text-xs font-bold text-spruce-900">عدد العملاء المعتمدين</span>
+            <div className="p-2 bg-teal-forest/10 text-teal-forest rounded-xl border border-teal-forest/20">
+              <Users className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-black text-spruce-900 tracking-tight">
+            {customers.length} <span className="text-xs font-normal text-slate-400">عميل</span>
+          </div>
+          <div className="text-[11px] text-slate-400 mt-1">قاعدة العملاء المسجلة بالنظام</div>
         </div>
       </div>
 
-      {/* Control Bar: Search & Add Customer */}
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4">
+      {/* Control Bar: Search & Actions */}
+      <div className="bg-white p-4 rounded-2xl shadow-corporate border border-slate-200/80 flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="relative w-full md:w-96">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="بحث سريع باسم العميل أو رقمه المحاسبي..."
-            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+            placeholder="بحث فوري باسم العميل أو رقمه المحاسبي..."
+            className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:border-teal-forest focus:ring-1 focus:ring-teal-forest focus:outline-none transition text-spruce-900"
           />
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
         </div>
@@ -197,9 +236,9 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
           {!isReadOnly && (
             <button
               onClick={handleOpenAddModal}
-              className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow-sm transition"
+              className="flex items-center gap-2 px-4 py-2.5 bg-teal-forest hover:bg-teal-forest-hover text-sand-warm rounded-xl text-xs font-bold shadow-sm transition border border-teal-forest"
             >
-              <UserPlus className="w-4 h-4" />
+              <UserPlus className="w-4 h-4 text-gold-bronze" />
               إضافة عميل جديد
             </button>
           )}
@@ -207,17 +246,17 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
       </div>
 
       {/* Customer Directory Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-corporate border border-slate-200/80 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-right text-xs">
-            <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold uppercase tracking-wider">
+            <thead className="bg-slate-50/80 text-spruce-900 border-b border-slate-200 font-bold uppercase tracking-wider text-[11px]">
               <tr>
                 <th className="py-3 px-4">العميل والرقم المحاسبي</th>
                 <th className="py-3 px-4">بيانات التواصل</th>
-                <th className="py-3 px-4">نسبة ومهلة الخصم</th>
+                <th className="py-3 px-4">الشروط المعتمدة</th>
                 <th className="py-3 px-4">صافي المبيعات</th>
-                <th className="py-3 px-4">الخصم المجمع المعتمد</th>
-                <th className="py-3 px-4">رصيد الذمة</th>
+                <th className="py-3 px-4 text-gold-bronze">الخصم المجمع المعتمد</th>
+                <th className="py-3 px-4">الرصيد المالي</th>
                 <th className="py-3 px-4">الفواتير</th>
                 <th className="py-3 px-4 text-center">الإجراءات</th>
               </tr>
@@ -226,7 +265,7 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
               {loading ? (
                 <tr>
                   <td colSpan="8" className="py-12 text-center text-slate-400">
-                    جاري تحميل دليل العملاء...
+                    جاري تحميل دليل العملاء المعتمدين...
                   </td>
                 </tr>
               ) : filteredCustomers.length === 0 ? (
@@ -237,10 +276,10 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
                 </tr>
               ) : (
                 filteredCustomers.map((cust) => (
-                  <tr key={cust.id} className="hover:bg-slate-50/80 transition-colors">
+                  <tr key={cust.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-3.5 px-4">
-                      <div className="font-bold text-sm text-slate-800">{cust.name}</div>
-                      <div className="text-xs text-blue-700 font-mono mt-0.5 flex items-center gap-1">
+                      <div className="font-bold text-xs text-spruce-900">{cust.name}</div>
+                      <div className="text-[11px] text-teal-forest font-mono mt-0.5 flex items-center gap-1">
                         <Hash className="w-3 h-3 text-slate-400" />
                         {cust.accounting_system_id}
                       </div>
@@ -259,24 +298,24 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
                       )}
                     </td>
 
-                    <td className="py-3.5 px-4 text-slate-700 font-medium">
+                    <td className="py-3.5 px-4 text-slate-700 font-semibold">
                       <div>{(cust.default_discount_rate * 100).toFixed(1)}% خصم</div>
-                      <div className="text-slate-400 text-[11px]">{cust.default_grace_days} يوم مهلة</div>
+                      <div className="text-slate-400 text-[10px] font-normal">{cust.default_grace_days} يوم مهلة</div>
                     </td>
 
-                    <td className="py-3.5 px-4 font-bold text-slate-900">
+                    <td className="py-3.5 px-4 font-bold text-spruce-900">
                       {cust.total_net_sales?.toLocaleString() || 0} ر.س
                     </td>
 
-                    <td className="py-3.5 px-4 font-black text-sm text-emerald-600">
+                    <td className="py-3.5 px-4 font-black text-sm text-gold-bronze">
                       {cust.total_rebate_earned?.toLocaleString() || 0} ر.س
                     </td>
 
                     <td className="py-3.5 px-4 font-bold">
                       {cust.customer_balance > 0 ? (
-                        <span className="text-amber-700 font-semibold">{cust.customer_balance.toLocaleString()} ر.س</span>
+                        <span className="text-amber-800 font-semibold">{cust.customer_balance.toLocaleString()} ر.س</span>
                       ) : cust.customer_balance < 0 ? (
-                        <span className="text-emerald-700 font-semibold">دائن: {Math.abs(cust.customer_balance).toLocaleString()} ر.س</span>
+                        <span className="text-teal-forest font-semibold">دائن: {Math.abs(cust.customer_balance).toLocaleString()} ر.س</span>
                       ) : (
                         <span className="text-slate-400 font-normal">خالص</span>
                       )}
@@ -285,7 +324,7 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
                     <td className="py-3.5 px-4">
                       <div className="text-slate-700 font-medium">{cust.invoice_count} فاتورة</div>
                       {cust.unpaid_invoice_count > 0 && (
-                        <div className="text-[11px] text-amber-600 font-semibold">
+                        <div className="text-[10px] text-amber-700 font-bold">
                           ({cust.unpaid_invoice_count} معلقة)
                         </div>
                       )}
@@ -293,40 +332,55 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
 
                     <td className="py-3.5 px-4 text-center">
                       <div className="flex items-center justify-center gap-1.5">
+                        
+                        {/* Statement Modal Button */}
                         <button
                           onClick={() => {
                             setStatementCustomerId(cust.id);
                             setIsStatementOpen(true);
                           }}
-                          className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-semibold transition"
-                          title="عرض كشف الحساب والتدقيق المالي"
+                          className="flex items-center gap-1 px-2.5 py-1.5 bg-spruce-900 text-sand-warm hover:bg-spruce-800 rounded-lg text-xs font-bold transition shadow-sm"
+                          title="عرض وتدقيق كشف الحساب التفصيلي"
                         >
-                          <FileText className="w-3.5 h-3.5" />
+                          <FileText className="w-3.5 h-3.5 text-gold-bronze" />
                           كشف الحساب
                         </button>
 
                         {!isReadOnly && (
                           <>
+                            {/* Fast Entry Button */}
                             <button
                               onClick={() => onSelectCustomerForEntry(cust.id)}
-                              className="p-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-xs font-semibold transition"
-                              title="إدخال حركة سريعة لهذا العميل"
+                              className="p-1.5 bg-sand-light text-spruce-900 hover:bg-sand-warm border border-sand-warm rounded-lg text-xs font-bold transition"
+                              title="تسجيل حركة سريعة لهذا العميل"
                             >
-                              <ArrowUpRight className="w-4 h-4" />
+                              <ArrowUpRight className="w-4 h-4 text-gold-bronze" />
                             </button>
 
+                            {/* Welcome Email Button */}
+                            <button
+                              onClick={() => handleSendWelcomeEmail(cust.id, cust.email)}
+                              disabled={sendingWelcomeId === cust.id}
+                              className="p-1.5 bg-teal-forest/10 hover:bg-teal-forest text-teal-forest hover:text-white rounded-lg text-xs transition border border-teal-forest/20"
+                              title="إرسال بريد ترحيبي وتعريفي بنظام الخصم الذكي"
+                            >
+                              <Send className={`w-3.5 h-3.5 ${sendingWelcomeId === cust.id ? 'animate-pulse' : ''}`} />
+                            </button>
+
+                            {/* Edit Button */}
                             <button
                               onClick={() => handleOpenEditModal(cust)}
-                              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                              className="p-1.5 text-slate-400 hover:text-spruce-900 hover:bg-slate-100 rounded-lg transition"
                               title="تعديل بيانات العميل"
                             >
                               <Edit className="w-3.5 h-3.5" />
                             </button>
 
+                            {/* Delete Button */}
                             {cust.invoice_count === 0 && (
                               <button
                                 onClick={() => handleDeleteCustomer(cust)}
-                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
                                 title="حذف العميل"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -357,72 +411,74 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
 
       {/* Add / Edit Customer Modal */}
       {isCustomerModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
-            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <UserPlus className="w-5 h-5 text-blue-600" />
-              {editingCustomer ? 'تعديل بيانات العميل' : 'إضافة عميل جديد للنظام'}
-            </h3>
+        <div className="fixed inset-0 z-50 bg-spruce-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-corporate-lg max-w-lg w-full p-6 border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <h3 className="text-base font-black text-spruce-900 flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-teal-forest" />
+                {editingCustomer ? 'تعديل بيانات العميل' : 'إضافة عميل جديد للنظام'}
+              </h3>
+            </div>
 
             {modalError && (
-              <div className="p-3 mb-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs">
+              <div className="p-3 mb-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs font-semibold">
                 {modalError}
               </div>
             )}
 
-            <form onSubmit={handleSaveCustomer} className="space-y-4 text-xs">
+            <form className="space-y-4 text-xs">
               <div>
-                <label className="block font-bold text-slate-700 mb-1">اسم العميل / المنشأة:</label>
+                <label className="block font-bold text-spruce-900 mb-1">اسم العميل / الشركة:</label>
                 <input
                   type="text"
                   required
                   value={customerForm.name}
                   onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })}
-                  placeholder="مثال: شركة الأمل للتجارة"
-                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  placeholder="مثال: مؤسسة الأمل للتجارة"
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none font-semibold text-spruce-900"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">الرقم بالنظام المحاسبي (فريد):</label>
+                  <label className="block font-bold text-spruce-900 mb-1">الرقم بالنظام المحاسبي (فريد):</label>
                   <input
                     type="text"
                     required
                     value={customerForm.accounting_system_id}
                     onChange={(e) => setCustomerForm({ ...customerForm, accounting_system_id: e.target.value })}
                     placeholder="مثال: CUST-010"
-                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none font-mono"
                   />
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">البريد الإلكتروني للإشعارات:</label>
+                  <label className="block font-bold text-spruce-900 mb-1">البريد الإلكتروني للإشعارات:</label>
                   <input
                     type="email"
                     required
                     value={customerForm.email}
                     onChange={(e) => setCustomerForm({ ...customerForm, email: e.target.value })}
                     placeholder="client@domain.com"
-                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-bold text-slate-700 mb-1">رقم الهاتف (اختياري):</label>
+                <label className="block font-bold text-spruce-900 mb-1">رقم الهاتف (اختياري):</label>
                 <input
                   type="text"
                   value={customerForm.phone}
                   onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })}
                   placeholder="05xxxxxxxx"
-                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">نسبة الخصم الافتراضية (%):</label>
+                  <label className="block font-bold text-spruce-900 mb-1">نسبة الخصم المقترحة (%):</label>
                   <input
                     type="number"
                     step="0.1"
@@ -431,13 +487,12 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
                     required
                     value={customerForm.default_discount_rate}
                     onChange={(e) => setCustomerForm({ ...customerForm, default_discount_rate: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none font-bold"
                   />
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">تُقترح تلقائياً عند تحرير فاتورة</span>
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">مهلة السداد بالأيام:</label>
+                  <label className="block font-bold text-spruce-900 mb-1">مهلة السداد (بالأيام):</label>
                   <input
                     type="number"
                     min="1"
@@ -445,26 +500,42 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
                     required
                     value={customerForm.default_grace_days}
                     onChange={(e) => setCustomerForm({ ...customerForm, default_grace_days: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none font-bold"
                   />
-                  <span className="text-[10px] text-slate-400 mt-0.5 block">مهلة استحقاق الخصم</span>
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setIsCustomerModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium"
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-sm"
-                >
-                  {editingCustomer ? 'حفظ التعديلات' : 'تسجيل العميل'}
-                </button>
+              {/* Action Buttons inside Modal */}
+              <div className="pt-4 flex flex-col gap-2">
+                
+                {/* User Request Feature: Save & Send Welcome Email */}
+                {!editingCustomer && (
+                  <button
+                    type="button"
+                    onClick={(e) => handleSaveCustomer(e, true)}
+                    className="w-full py-2.5 px-4 bg-sand-light hover:bg-sand-warm text-spruce-900 border border-sand-warm rounded-xl font-black text-xs transition flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    <Sparkles className="w-4 h-4 text-gold-bronze" />
+                    حفظ العميل وإرسال بريد ترحيبي بالخصم الذكي فوراً
+                  </button>
+                )}
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsCustomerModalOpen(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => handleSaveCustomer(e, false)}
+                    className="px-5 py-2 bg-teal-forest hover:bg-teal-forest-hover text-sand-warm rounded-xl font-bold shadow-sm"
+                  >
+                    {editingCustomer ? 'حفظ التعديلات' : 'حفظ العميل فقط'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

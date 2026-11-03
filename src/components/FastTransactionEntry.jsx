@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  PlusCircle, CheckCircle, AlertCircle, ArrowRightLeft, 
-  Receipt, CreditCard, RotateCcw, Send, Check, Search, UserCheck
+  PlusCircle, CheckCircle2, AlertCircle, 
+  Receipt, CreditCard, RotateCcw, Send, Check, Search, UserCheck, 
+  Sparkles, Calendar, DollarSign, Percent, ShieldCheck
 } from 'lucide-react';
 
 export default function FastTransactionEntry({ preselectedCustomerId, onTransactionSaved, isReadOnly }) {
@@ -14,7 +15,7 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
   const [accountingTransId, setAccountingTransId] = useState('');
   const [transDate, setTransDate] = useState(new Date().toISOString().slice(0, 10));
   const [amount, setAmount] = useState('');
-  const [discountRate, setDiscountRate] = useState(7); // percentage (e.g. 7 for 7%)
+  const [discountRate, setDiscountRate] = useState(7);
   const [graceDays, setGraceDays] = useState(30);
 
   // For Return/Adjustments
@@ -61,14 +62,11 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
     setCustomerSearch(`${cust.name} (${cust.accounting_system_id})`);
     setShowCustomerDropdown(false);
 
-    // Apply customer defaults if in invoice mode
     setDiscountRate(cust.default_discount_rate ? cust.default_discount_rate * 100 : 7);
     setGraceDays(cust.default_grace_days || 30);
 
-    // If in return mode, load invoices
     loadInvoicesForCustomer(cust.id);
 
-    // Focus on reference ID input
     setTimeout(() => {
       transIdInputRef.current?.focus();
     }, 50);
@@ -165,7 +163,6 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
         setSuccessMessage(`تم تسجيل المرتجع [${accountingTransId}] وربطه بالفاتورة بنجاح.`);
       }
 
-      // Reset form fields
       setAccountingTransId('');
       setAmount('');
       setReturnNotes('');
@@ -173,7 +170,6 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
         onTransactionSaved();
       }
 
-      // Refocus customer search or trans id for fast continuous entry
       setTimeout(() => {
         transIdInputRef.current?.focus();
       }, 100);
@@ -190,49 +186,63 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
     c.accounting_system_id.toLowerCase().includes(customerSearch.toLowerCase())
   );
 
+  // Live Calculations for Preview Box
+  const parsedAmount = parseFloat(amount) || 0;
+  const parsedRate = parseFloat(discountRate) || 0;
+  const expectedRebate = ((parsedAmount * parsedRate) / 100).toFixed(2);
+  
+  // Calculate discount deadline date
+  const deadlineDate = new Date(transDate);
+  deadlineDate.setDate(deadlineDate.getDate() + (parseInt(graceDays, 10) || 30));
+  const deadlineStr = deadlineDate.toISOString().slice(0, 10);
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       
-      {/* Page Title Card */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <PlusCircle className="w-6 h-6 text-blue-600" />
-            شاشة الإدخال السريع للحركات اليومية
-          </h2>
-          <p className="text-sm text-slate-500 mt-1">
-            تسجيل الفواتير، سندات السداد، والمرتجعات مع إعادة بناء الرصيد وحساب الخصم لحظياً
-          </p>
+      {/* Title Card */}
+      <div className="bg-white p-6 rounded-2xl shadow-corporate border border-slate-200/80 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-teal-forest rounded-xl text-sand-warm shadow-sm">
+            <PlusCircle className="w-6 h-6 text-gold-bronze" />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-spruce-900 tracking-tight">
+              شاشة الإدخال السريع للحركات اليومية
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              تسجيل الفواتير، سندات السداد، والمرتجعات مع إعادة الاحتساب اللحظي المباشر
+            </p>
+          </div>
         </div>
 
         {isReadOnly && (
-          <div className="px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs font-semibold">
+          <div className="px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs font-bold">
             وضع الأرشيف (للقراءة فقط)
           </div>
         )}
       </div>
 
       {/* Main Entry Form */}
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-2xl shadow-corporate border border-slate-200/80 space-y-6">
         
         {/* Alerts */}
         {errorMessage && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+          <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl text-rose-900 text-xs font-semibold flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0" />
             <span>{errorMessage}</span>
           </div>
         )}
 
         {successMessage && (
-          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-sm flex items-center justify-between">
+          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-900 text-xs font-semibold flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
-              <span className="font-medium">{successMessage}</span>
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+              <span>{successMessage}</span>
             </div>
             <button 
               type="button" 
               onClick={() => setSuccessMessage(null)} 
-              className="text-xs text-emerald-700 underline font-semibold"
+              className="text-xs text-emerald-700 underline font-bold"
             >
               إغلاق
             </button>
@@ -241,9 +251,9 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
 
         {/* 1. Customer Selection */}
         <div className="relative">
-          <label className="block text-sm font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
-            <UserCheck className="w-4 h-4 text-blue-600" />
-            العميل المستهدف (ابحث بالاسم أو الرقم المحاسبي):
+          <label className="block text-xs font-bold text-spruce-900 mb-1.5 flex items-center gap-1.5">
+            <UserCheck className="w-4 h-4 text-teal-forest" />
+            العميل المستهدف (بحث بالاسم أو الرقم المحاسبي):
           </label>
           <div className="relative">
             <input
@@ -260,14 +270,14 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
               onFocus={() => setShowCustomerDropdown(true)}
               placeholder="اكتب اسم العميل أو رقمه المحاسبي..."
               disabled={isReadOnly}
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:border-teal-forest focus:ring-1 focus:ring-teal-forest focus:outline-none transition text-spruce-900"
             />
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
           </div>
 
           {/* Autocomplete Dropdown */}
           {showCustomerDropdown && customerSearch.length > 0 && !selectedCustomer && (
-            <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto divide-y divide-slate-100">
+            <div className="absolute z-20 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-corporate-lg max-h-60 overflow-y-auto divide-y divide-slate-100">
               {filteredCustomers.length === 0 ? (
                 <div className="p-3 text-xs text-slate-400 text-center">لا يوجد عميل مطابق للبحث</div>
               ) : (
@@ -275,14 +285,14 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
                   <div
                     key={c.id}
                     onClick={() => selectCustomer(c)}
-                    className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between text-xs transition"
+                    className="p-3 hover:bg-slate-50 cursor-pointer flex items-center justify-between text-xs transition"
                   >
                     <div>
-                      <strong className="text-slate-800 font-bold block">{c.name}</strong>
-                      <span className="text-slate-500">الرقم المحاسبي: {c.accounting_system_id} | البريد: {c.email}</span>
+                      <strong className="text-spruce-900 font-bold block">{c.name}</strong>
+                      <span className="text-slate-500 font-mono text-[11px]">#{c.accounting_system_id} | {c.email}</span>
                     </div>
-                    <div className="text-left font-semibold text-emerald-700">
-                      رصيد الخصم: {c.total_rebate_earned?.toLocaleString() || 0} ر.س
+                    <div className="text-left font-bold text-gold-bronze">
+                      خصم معتمد: {c.total_rebate_earned?.toLocaleString() || 0} ر.س
                     </div>
                   </div>
                 ))
@@ -291,7 +301,7 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
           )}
 
           {selectedCustomer && (
-            <div className="mt-2 p-2.5 bg-blue-50/60 border border-blue-100 rounded-lg text-xs text-blue-900 flex items-center justify-between">
+            <div className="mt-2 p-2.5 bg-sand-light border border-sand-warm rounded-lg text-xs text-spruce-900 flex items-center justify-between font-semibold">
               <span>
                 العميل المختار: <strong>{selectedCustomer.name}</strong> ({selectedCustomer.accounting_system_id})
               </span>
@@ -302,7 +312,7 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
                   setCustomerSearch('');
                   customerInputRef.current?.focus();
                 }}
-                className="text-xs text-blue-700 hover:text-red-600 underline"
+                className="text-xs text-teal-forest hover:text-rose-600 underline font-bold"
               >
                 تغيير العميل
               </button>
@@ -310,47 +320,47 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
           )}
         </div>
 
-        {/* 2. Transaction Type Radio Pills */}
+        {/* 2. Transaction Type Selection */}
         <div>
-          <label className="block text-sm font-bold text-slate-700 mb-2">نوع الحركة:</label>
+          <label className="block text-xs font-bold text-spruce-900 mb-2">نوع الحركة المالية:</label>
           <div className="grid grid-cols-3 gap-3">
             <button
               type="button"
               onClick={() => handleTransTypeChange('INVOICE')}
-              className={`py-3 px-4 rounded-xl border flex items-center justify-center gap-2 text-sm font-bold transition ${
+              className={`py-3 px-4 rounded-xl border flex items-center justify-center gap-2 text-xs font-black transition ${
                 transType === 'INVOICE'
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                  ? 'bg-spruce-900 text-sand-warm border-spruce-900 shadow-sm'
                   : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
               }`}
             >
-              <Receipt className="w-4 h-4" />
-              فاتورة جديدة
+              <Receipt className="w-4 h-4 text-gold-bronze" />
+              فاتورة مبيعات جديدة
             </button>
 
             <button
               type="button"
               onClick={() => handleTransTypeChange('PAYMENT')}
-              className={`py-3 px-4 rounded-xl border flex items-center justify-center gap-2 text-sm font-bold transition ${
+              className={`py-3 px-4 rounded-xl border flex items-center justify-center gap-2 text-xs font-black transition ${
                 transType === 'PAYMENT'
-                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                  ? 'bg-teal-forest text-sand-warm border-teal-forest shadow-sm'
                   : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
               }`}
             >
-              <CreditCard className="w-4 h-4" />
-              سداد / سند قبض
+              <CreditCard className="w-4 h-4 text-gold-bronze" />
+              سند قبض / سداد نقدي
             </button>
 
             <button
               type="button"
               onClick={() => handleTransTypeChange('RETURN')}
-              className={`py-3 px-4 rounded-xl border flex items-center justify-center gap-2 text-sm font-bold transition ${
+              className={`py-3 px-4 rounded-xl border flex items-center justify-center gap-2 text-xs font-black transition ${
                 transType === 'RETURN'
-                  ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                  ? 'bg-sand-warm text-spruce-900 border-sand-warm shadow-sm'
                   : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
               }`}
             >
-              <RotateCcw className="w-4 h-4" />
-              مرتجع / تالف
+              <RotateCcw className="w-4 h-4 text-spruce-900" />
+              إشعار دائن (مرتجع / تالف)
             </button>
           </div>
         </div>
@@ -358,8 +368,8 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
         {/* 3. Transaction Details Inputs */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
-              رقم الحركة في النظام المحاسبي (إلزامي للتدقيق):
+            <label className="block text-xs font-bold text-spruce-900 mb-1.5">
+              رقم الحركة بالنظام المحاسبي (إلزامي للتدقيق):
             </label>
             <input
               ref={transIdInputRef}
@@ -368,12 +378,12 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
               value={accountingTransId}
               onChange={(e) => setAccountingTransId(e.target.value)}
               placeholder={transType === 'INVOICE' ? 'مثال: INV-10452' : transType === 'PAYMENT' ? 'مثال: REC-9081' : 'مثال: RET-302'}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-spruce-900 focus:bg-white focus:border-teal-forest focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+            <label className="block text-xs font-bold text-spruce-900 mb-1.5">
               {transType === 'PAYMENT' ? 'تاريخ السند الفعلي (المرجع الزمني للمهلة):' : 'تاريخ الحركة الفعلي:'}
             </label>
             <input
@@ -381,12 +391,12 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
               required
               value={transDate}
               onChange={(e) => setTransDate(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:border-teal-forest focus:outline-none"
             />
           </div>
 
           <div className={transType === 'INVOICE' ? 'md:col-span-2' : ''}>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+            <label className="block text-xs font-bold text-spruce-900 mb-1.5">
               المبلغ الإجمالي (ر.س):
             </label>
             <input
@@ -397,7 +407,7 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-base font-black text-spruce-900 focus:bg-white focus:border-teal-forest focus:outline-none"
             />
           </div>
 
@@ -405,8 +415,8 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
           {transType === 'INVOICE' && (
             <>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  نسبة الخصم لهذه الفاتورة (%):
+                <label className="block text-xs font-bold text-spruce-900 mb-1.5">
+                  نسبة الخصم المعتمدة لهذه الفاتورة (%):
                 </label>
                 <input
                   type="number"
@@ -416,15 +426,12 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
                   required
                   value={discountRate}
                   onChange={(e) => setDiscountRate(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-spruce-900 focus:bg-white focus:border-teal-forest focus:outline-none"
                 />
-                <span className="text-[11px] text-slate-400 mt-1 block">
-                  قيمة الخصم المتوقعة: {amount && discountRate ? ((parseFloat(amount) * parseFloat(discountRate)) / 100).toFixed(2) : '0.00'} ر.س
-                </span>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                <label className="block text-xs font-bold text-spruce-900 mb-1.5">
                   مهلة السداد المسموحة (بالأيام):
                 </label>
                 <input
@@ -434,8 +441,20 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
                   required
                   value={graceDays}
                   onChange={(e) => setGraceDays(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-spruce-900 focus:bg-white focus:border-teal-forest focus:outline-none"
                 />
+              </div>
+
+              {/* Live Financial Preview Card */}
+              <div className="md:col-span-2 p-3.5 bg-sand-light rounded-xl border border-sand-warm flex items-center justify-between text-xs text-spruce-900">
+                <div className="flex items-center gap-2 font-bold">
+                  <Sparkles className="w-4 h-4 text-gold-bronze" />
+                  <span>الخصم المكتسب عند الالتزام:</span>
+                  <span className="text-sm font-black text-gold-bronze">{expectedRebate} ر.س</span>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  آخر موعد لاعتماد الخصم: <strong className="text-spruce-900 font-mono">{deadlineStr}</strong>
+                </div>
               </div>
             </>
           )}
@@ -444,14 +463,14 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
           {transType === 'RETURN' && (
             <>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                <label className="block text-xs font-bold text-spruce-900 mb-1.5">
                   الفاتورة الأصلية المستهدفة (إلزامي):
                 </label>
                 <select
                   required
                   value={selectedInvoiceId}
                   onChange={(e) => setSelectedInvoiceId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-spruce-900 focus:bg-white focus:border-teal-forest focus:outline-none"
                 >
                   <option value="">-- اختر الفاتورة الأصلية --</option>
                   {customerInvoices.map((inv) => (
@@ -463,13 +482,13 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  نوع الحركة:
+                <label className="block text-xs font-bold text-spruce-900 mb-1.5">
+                  تصنيف الإشعار الدائن:
                 </label>
                 <select
                   value={returnType}
                   onChange={(e) => setReturnType(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-spruce-900 focus:bg-white focus:border-teal-forest focus:outline-none"
                 >
                   <option value="RETURN">مرتجع بضاعة (RETURN)</option>
                   <option value="DAMAGED">تالف أو عيوب تصنيع (DAMAGED)</option>
@@ -477,15 +496,15 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                <label className="block text-xs font-bold text-spruce-900 mb-1.5">
                   ملاحظات أو سبب الإرجاع (اختياري):
                 </label>
                 <input
                   type="text"
                   value={returnNotes}
                   onChange={(e) => setReturnNotes(e.target.value)}
-                  placeholder="سبب المرتجع..."
-                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                  placeholder="سبب المرتجع والتفاصيل..."
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:border-teal-forest focus:outline-none"
                 />
               </div>
             </>
@@ -493,16 +512,15 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
         </div>
 
         {/* 4. Instant Email Notification Toggle */}
-        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+        <div className="p-4 bg-slate-50/80 border border-slate-200/80 rounded-xl flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${sendNotification ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-500'}`}>
+            <div className={`p-2 rounded-lg ${sendNotification ? 'bg-teal-forest/10 text-teal-forest' : 'bg-slate-200 text-slate-400'}`}>
               <Send className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-sm font-bold text-slate-800">إرسال إشعار فوري للعميل عبر الإيميل</div>
-              <div className="text-xs text-slate-500">
-                إشعار العميل بتفاصيل الحركة ورصيد الخصم التراكمي المعتمد حتى اللحظة.
-                (أطفئ المفتاح عند إدخال حركات سابقة أو تصحيحية).
+              <div className="text-xs font-bold text-spruce-900">إرسال إشعار فوري للعميل عبر الإيميل</div>
+              <div className="text-[11px] text-slate-500">
+                إشعار العميل بتفاصيل الحركة ورصيد خصمه التراكمي المعتمد حتى تاريخه.
               </div>
             </div>
           </div>
@@ -515,28 +533,22 @@ export default function FastTransactionEntry({ preselectedCustomerId, onTransact
               disabled={isReadOnly}
               className="sr-only peer"
             />
-            <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-forest"></div>
           </label>
         </div>
 
-        {/* 5. Big Submit Button */}
+        {/* 5. Submit Button */}
         <div className="pt-2">
           <button
             type="submit"
             disabled={isSubmitting || isReadOnly}
-            className={`w-full py-3.5 px-6 rounded-xl font-bold text-base text-white shadow-md transition flex items-center justify-center gap-2 ${
-              transType === 'INVOICE'
-                ? 'bg-blue-600 hover:bg-blue-700'
-                : transType === 'PAYMENT'
-                ? 'bg-emerald-600 hover:bg-emerald-700'
-                : 'bg-rose-600 hover:bg-rose-700'
-            } disabled:opacity-50`}
+            className="w-full py-3.5 px-6 rounded-xl font-black text-sm text-sand-warm bg-spruce-900 hover:bg-spruce-800 shadow-corporate transition flex items-center justify-center gap-2 border border-teal-forest disabled:opacity-40"
           >
             {isSubmitting ? (
-              <span>جاري الحفظ وإعادة الاحتساب...</span>
+              <span>جاري الحفظ وإعادة الاحتساب اللحظي...</span>
             ) : (
               <>
-                <Check className="w-5 h-5" />
+                <Check className="w-5 h-5 text-gold-bronze" />
                 حفظ الحركة وتحديث رصيد العميل فورياً
               </>
             )}
