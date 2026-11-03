@@ -1,4 +1,20 @@
-const Database = require('better-sqlite3');
+let DatabaseDriver;
+try {
+  const { DatabaseSync } = require('node:sqlite');
+  if (DatabaseSync) {
+    DatabaseDriver = function(file, opts = {}) {
+      const db = new DatabaseSync(file, { readOnly: opts.readonly || false });
+      db.pragma = (cmd) => db.exec('PRAGMA ' + cmd);
+      return db;
+    };
+  }
+} catch (e) {
+  // fallback to better-sqlite3 if node:sqlite is not present
+}
+if (!DatabaseDriver) {
+  DatabaseDriver = require('better-sqlite3');
+}
+
 const path = require('path');
 const fs = require('fs');
 const { calculateCustomerLedger } = require('../engine/calculator');
@@ -110,7 +126,7 @@ function openDatabase(dbFilePath, readOnly = false) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  activeDb = new Database(dbFilePath, { readonly: readOnly, fileMustExist: false });
+  activeDb = new DatabaseDriver(dbFilePath, { readonly: readOnly, fileMustExist: false });
   currentDbPath = dbFilePath;
   isCurrentDbReadOnly = readOnly;
 
