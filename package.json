@@ -1,0 +1,75 @@
+{
+  "name": "rebate-management-system",
+  "version": "1.0.0",
+  "description": "نظام إدارة خصم تعجيل الدفع المجمع (Rebate System)",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "node --test test/**/*.test.js",
+    "electron:dev": "concurrently -k \"cross-env BROWSER=none vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron electron/main.js\"",
+    "electron:start": "npm run build && electron electron/main.js",
+    "package": "npm run build && electron-builder --win",
+    "start": "npm run electron:start"
+  },
+  "keywords": [
+    "rebate",
+    "cash-discount",
+    "fifo",
+    "accounting",
+    "electron",
+    "react"
+  ],
+  "author": "Mohali Banafa",
+  "license": "ISC",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "lucide-react": "^1.16.0",
+    "nodemailer": "^7.0.13",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@vitejs/plugin-react": "^5.1.4",
+    "autoprefixer": "^10.4.27",
+    "concurrently": "^9.2.1",
+    "cross-env": "^7.0.3",
+    "electron": "^40.8.0",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.1.18",
+    "vite": "^8.3.5",
+    "wait-on": "^9.0.4"
+  },
+  "build": {
+    "appId": "com.rebate.system",
+    "productName": "Rebate System",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "نظام إدارة الخصم التراكمي"
+    }
+  }
+}
