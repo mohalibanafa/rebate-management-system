@@ -40,6 +40,6 @@ contextBridge.exposeInMainWorld('api', {
   backupDatabase: () => ipcRenderer.invoke('db:backup'),
 
   // Print & PDF
-  printStatement: () => ipcRenderer.invoke('app:print-statement'),
-  exportStatementPDF: (customerName, accountingId) => ipcRenderer.invoke('app:export-pdf', { customerName, accountingId })
+  printStatement: (customerId) => ipcRenderer.invoke('app:print-statement', customerId),
+  exportStatementPDF: (customerId) => ipcRenderer.invoke('app:export-pdf', { customerId })
 });

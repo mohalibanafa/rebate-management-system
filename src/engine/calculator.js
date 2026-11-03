@@ -129,7 +129,10 @@ function calculateCustomerLedger(invoices = [], payments = [], adjustments = [])
       const diffDays = payDays - invDays;
 
       // Eligible if paid within grace days (or advance payment diffDays <= graceDays) OR exception granted
-      const isEligible = (diffDays <= inv.grace_days) || (inv.is_exception_granted === 1);
+      const isWithinGrace = diffDays <= inv.grace_days;
+      const isExceptionApplied = !isWithinGrace && inv.is_exception_granted === 1;
+      const isEligible = isWithinGrace || isExceptionApplied;
+
       const discountEarned = isEligible
         ? Math.round(appliedAmount * inv.discount_rate * 100) / 100
         : 0;
@@ -146,7 +149,7 @@ function calculateCustomerLedger(invoices = [], payments = [], adjustments = [])
         is_eligible: isEligible,
         discount_rate: inv.discount_rate,
         discount_earned: discountEarned,
-        is_exception_applied: !isEligible && inv.is_exception_granted === 1,
+        is_exception_applied: isExceptionApplied,
         is_corrected: pay.is_corrected
       });
 

@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const dbModule = require('../src/db/database');
+const { generateStatementHtml } = require('../src/reports/statementPdfTemplate');
 const { 
   startEmailWorker, 
   stopEmailWorker, 
@@ -240,35 +241,96 @@ function registerIpcHandlers() {
     return null;
   });
 
-  // Print & PDF
-  ipcMain.handle('app:print-statement', async () => {
-    if (!mainWindow) return false;
-    mainWindow.webContents.print({
-      silent: false,
-      printBackground: true
-    });
-    return true;
+  // Print & PDF using dedicated, standalone HTML template
+  ipcMain.handle('app:print-statement', async (e, customerId) => {
+    try {
+      const statement = dbModule.getCustomerStatement(customerId);
+      const company = dbModule.getSetting('company_name', 'مؤسسة الحلول التجارية المتقدمة');
+      const html = generateStatementHtml(statement, { company_name: company });
+
+      const printWin = new BrowserWindow({
+        show: false,
+        width: 1024,
+        height: 1448,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true
+        }
+      });
+
+      await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+      printWin.webContents.print({
+        silent: false,
+        printBackground: true
+      }, (success, failureReason) => {
+        if (!printWin.isDestroyed()) printWin.destroy();
+      });
+      return true;
+    } catch (err) {
+      console.error('[Print Statement Error]:', err);
+      throw err;
+    }
   });
 
-  ipcMain.handle('app:export-pdf', async (e, { customerName, accountingId }) => {
-    if (!mainWindow) return null;
-    const defaultName = `كشف_حساب_${accountingId}_${customerName.replace(/[\/\\:*?"<>|]/g, '_')}.pdf`;
-    const { filePath } = await dialog.showSaveDialog(mainWindow, {
-      title: 'حفظ كشف الحساب بصيغة PDF',
-      defaultPath: path.join(app.getPath('documents'), defaultName),
-      filters: [{ name: 'PDF Document', extensions: ['pdf'] }]
-    });
+  ipcMain.handle('app:export-pdf', async (e, params) => {
+    try {
+      let customerId;
+      if (typeof params === 'number') {
+        customerId = params;
+      } else if (typeof params === 'object' && params?.customerId) {
+        customerId = params.customerId;
+      }
 
-    if (filePath) {
-      const data = await mainWindow.webContents.printToPDF({
+      if (!customerId) {
+        throw new Error('رقم العميل مطلوب لتصدير كشف الحساب.');
+      }
+
+      const statement = dbModule.getCustomerStatement(customerId);
+      const company = dbModule.getSetting('company_name', 'مؤسسة الحلول التجارية المتقدمة');
+      const html = generateStatementHtml(statement, { company_name: company });
+
+      const defaultName = `كشف_حساب_${statement.customer.accounting_system_id}_${statement.customer.name.replace(/[\/\\:*?"<>|]/g, '_')}.pdf`;
+      const { filePath } = await dialog.showSaveDialog(mainWindow, {
+        title: 'حفظ كشف الحساب المالي بصيغة PDF',
+        defaultPath: path.join(app.getPath('documents'), defaultName),
+        filters: [{ name: 'PDF Document', extensions: ['pdf'] }]
+      });
+
+      if (!filePath) return null;
+
+      const printWin = new BrowserWindow({
+        show: false,
+        width: 1024,
+        height: 1448,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true
+        }
+      });
+
+      await printWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+      const pdfBuffer = await printWin.webContents.printToPDF({
         printBackground: true,
         pageSize: 'A4',
-        landscape: false
+        landscape: false,
+        margins: {
+          marginType: 'custom',
+          top: 0.35,
+          bottom: 0.35,
+          left: 0.35,
+          right: 0.35
+        }
       });
-      fs.writeFileSync(filePath, data);
+
+      fs.writeFileSync(filePath, pdfBuffer);
+      if (!printWin.isDestroyed()) printWin.destroy();
       return filePath;
+    } catch (err) {
+      console.error('[Export PDF Error]:', err);
+      throw err;
     }
-    return null;
   });
 }
 

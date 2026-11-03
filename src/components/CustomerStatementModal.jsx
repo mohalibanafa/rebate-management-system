@@ -59,9 +59,13 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
 
   const handlePrint = async () => {
     try {
-      await window.api.printStatement();
+      if (window.api && window.api.printStatement) {
+        await window.api.printStatement(customerId);
+      } else {
+        window.print();
+      }
     } catch (err) {
-      window.print();
+      alert('خطأ أثناء الطباعة: ' + err.message);
     }
   };
 
@@ -69,12 +73,13 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
     if (!statement) return;
     try {
       setExportingPdf(true);
-      const filePath = await window.api.exportStatementPDF(
-        statement.customer.name,
-        statement.customer.accounting_system_id
-      );
-      if (filePath) {
-        alert(`تم تصدير كشف الحساب بنجاح إلى:\n${filePath}`);
+      if (window.api && window.api.exportStatementPDF) {
+        const filePath = await window.api.exportStatementPDF(customerId);
+        if (filePath) {
+          alert(`تم تصدير كشف الحساب بنجاح بصيغة PDF نقية عبر قالب مالي رسمي إلى:\n${filePath}`);
+        }
+      } else {
+        alert('خاصية تصدير PDF تتطلب تشغيل التطبيق في بيئة سطح المكتب.');
       }
     } catch (err) {
       alert('فشل تصدير PDF: ' + err.message);
