@@ -206,4 +206,57 @@ describe('Database Layer & Financial Constraints', () => {
     assert.strictEqual(updatedSt1.totalRebateEarned, 0); // 0%
     assert.strictEqual(updatedSt1.breakdown[0].category_id, 1);
   });
+
+  it('Allows batch updating discount category for multiple invoices in a single transaction', () => {
+    const customer = dbModule.createCustomer({
+      accounting_system_id: 'CUST-600',
+      name: 'شركة البناء المتقدم',
+      cat1_discount_rate: 0.00,
+      cat2_discount_rate: 0.03,
+      cat3_discount_rate: 0.07
+    });
+
+    const inv1 = dbModule.createInvoice({
+      customer_id: customer.id,
+      accounting_trans_id: 'INV-601',
+      invoice_date: '2026-02-01',
+      total_amount: 5000,
+      discount_rate: 0.07,
+      grace_days: 30
+    });
+
+    const inv2 = dbModule.createInvoice({
+      customer_id: customer.id,
+      accounting_trans_id: 'INV-602',
+      invoice_date: '2026-02-02',
+      total_amount: 5000,
+      discount_rate: 0.07,
+      grace_days: 30
+    });
+
+    // Batch update both to Category 2 with custom rate 0.04 (4%)
+    const batchSt = dbModule.updateInvoicesBatchCategory([inv1.id, inv2.id], 2, 0.04);
+    assert.ok(batchSt);
+    const bInvs = batchSt.breakdown.filter(i => i.id === inv1.id || i.id === inv2.id);
+    assert.strictEqual(bInvs.length, 2);
+    assert.strictEqual(bInvs[0].category_id, 2);
+    assert.strictEqual(bInvs[0].discount_rate, 0.04);
+    assert.strictEqual(bInvs[0].is_category_manual, 1);
+    assert.strictEqual(bInvs[1].category_id, 2);
+    assert.strictEqual(bInvs[1].discount_rate, 0.04);
+    assert.strictEqual(bInvs[1].is_category_manual, 1);
+  });
+
+  it('Ensures clean floating point rate precision (never 7.000000001)', () => {
+    const customer = dbModule.createCustomer({
+      accounting_system_id: 'CUST-700',
+      name: 'مؤسسة الدقة',
+      default_discount_rate: 0.07,
+      cat3_discount_rate: 0.07
+    });
+
+    assert.strictEqual(customer.default_discount_rate, 0.07);
+    assert.strictEqual(customer.cat3_discount_rate, 0.07);
+    assert.strictEqual(String(customer.cat3_discount_rate), '0.07');
+  });
 });

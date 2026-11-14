@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('api', {
   createInvoice: (data) => ipcRenderer.invoke('invoice:create', data),
   updateInvoice: (id, data) => ipcRenderer.invoke('invoice:update', { id, data }),
   updateInvoiceCategory: (invoiceId, categoryId, customRate) => ipcRenderer.invoke('invoice:category-update', { invoiceId, categoryId, customRate }),
+  updateInvoicesBatchCategory: (invoiceIds, categoryId, customRate) => ipcRenderer.invoke('invoice:category-batch-update', { invoiceIds, categoryId, customRate }),
   grantInvoiceException: (id, reason) => ipcRenderer.invoke('invoice:exception-grant', { id, reason }),
   revokeInvoiceException: (id) => ipcRenderer.invoke('invoice:exception-revoke', id),
 
@@ -35,6 +36,7 @@ contextBridge.exposeInMainWorld('api', {
     getCustomers: () => ipcRenderer.invoke('infosoft:customers'),
     getStatement: (customerId, config) => ipcRenderer.invoke('infosoft:statement', { customerId, config }),
     syncCustomer: (customerId, config) => ipcRenderer.invoke('infosoft:sync-customer', { customerId, config }),
+    syncAllCustomers: () => ipcRenderer.invoke('infosoft:sync-all-customers'),
     configure: (newConfig) => ipcRenderer.invoke('infosoft:config', newConfig)
   },
 

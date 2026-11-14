@@ -171,6 +171,9 @@ function registerIpcHandlers() {
   ipcMain.handle('invoice:category-update', async (e, { invoiceId, categoryId, customRate }) => {
     return dbModule.updateInvoiceCategory(invoiceId, categoryId, customRate);
   });
+  ipcMain.handle('invoice:category-batch-update', async (e, { invoiceIds, categoryId, customRate }) => {
+    return dbModule.updateInvoicesBatchCategory(invoiceIds, categoryId, customRate);
+  });
   ipcMain.handle('invoice:exception-grant', async (e, { id, reason }) => dbModule.grantInvoiceException(id, reason));
   ipcMain.handle('invoice:exception-revoke', async (e, id) => dbModule.revokeInvoiceException(id));
 
@@ -188,6 +191,9 @@ function registerIpcHandlers() {
   });
   ipcMain.handle('infosoft:sync-customer', async (e, { customerId, config }) => {
     return dbModule.syncCustomerFromInfoSoft(customerId, config);
+  });
+  ipcMain.handle('infosoft:sync-all-customers', async () => {
+    return dbModule.syncAllCustomersFromInfoSoft();
   });
   ipcMain.handle('infosoft:config', async (e, newConfig) => {
     if (newConfig) {
@@ -432,6 +438,26 @@ app.whenReady().then(() => {
   registerIpcHandlers();
   createWindow();
   startEmailWorker(15000);
+
+  // Initial sync of all accounts on first-time startup if not yet performed
+  setTimeout(async () => {
+    try {
+      const isSynced = dbModule.getSetting('initial_infosoft_sync_done', '0');
+      const custCount = dbModule.getAllCustomers().length;
+      if (isSynced !== '1' || custCount === 0) {
+        logger.info('INFOSOFT', 'Checking initial InfoSoft sync for all accounts...');
+        const res = await dbModule.syncAllCustomersFromInfoSoft();
+        if (res && res.success) {
+          logger.info('INFOSOFT', `Initial startup customer sync completed. Imported ${res.syncedCount} accounts.`);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('customers:updated');
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn('INFOSOFT', 'First-time startup sync could not connect (InfoSoft may be offline or starting up)', { error: err.message });
+    }
+  }, 2000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

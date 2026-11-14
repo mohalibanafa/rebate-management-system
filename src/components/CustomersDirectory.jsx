@@ -6,10 +6,16 @@ import {
 } from 'lucide-react';
 import CustomerStatementModal from './CustomerStatementModal';
 
+const rateToPercent = (rate, defaultVal = 0) => {
+  if (rate === undefined || rate === null || isNaN(rate)) return defaultVal;
+  return Math.round((Number(rate) * 100 + Number.EPSILON) * 100) / 100;
+};
+
 export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnly }) {
   const [customers, setCustomers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isBatchSyncing, setIsBatchSyncing] = useState(false);
 
   // Statement Modal State
   const [statementCustomerId, setStatementCustomerId] = useState(null);
@@ -82,11 +88,11 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
       accounting_system_id: cust.accounting_system_id,
       email: cust.email || '',
       phone: cust.phone || '',
-      default_discount_rate: cust.default_discount_rate ? cust.default_discount_rate * 100 : 7,
+      default_discount_rate: rateToPercent(cust.default_discount_rate, 7),
       default_grace_days: cust.default_grace_days || 30,
-      cat1_discount_rate: cust.cat1_discount_rate !== undefined ? cust.cat1_discount_rate * 100 : 0,
-      cat2_discount_rate: cust.cat2_discount_rate !== undefined ? cust.cat2_discount_rate * 100 : 3,
-      cat3_discount_rate: cust.cat3_discount_rate !== undefined ? cust.cat3_discount_rate * 100 : 7
+      cat1_discount_rate: rateToPercent(cust.cat1_discount_rate, 0),
+      cat2_discount_rate: rateToPercent(cust.cat2_discount_rate, 3),
+      cat3_discount_rate: rateToPercent(cust.cat3_discount_rate, 7)
     });
     setModalError(null);
     setIsCustomerModalOpen(true);
@@ -102,11 +108,11 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
         accounting_system_id: customerForm.accounting_system_id.trim(),
         email: customerForm.email.trim(),
         phone: customerForm.phone.trim() || null,
-        default_discount_rate: parseFloat(customerForm.cat3_discount_rate || customerForm.default_discount_rate) / 100,
+        default_discount_rate: Math.round(parseFloat(customerForm.cat3_discount_rate || customerForm.default_discount_rate) * 100) / 10000,
         default_grace_days: parseInt(customerForm.default_grace_days, 10),
-        cat1_discount_rate: parseFloat(customerForm.cat1_discount_rate) / 100,
-        cat2_discount_rate: parseFloat(customerForm.cat2_discount_rate) / 100,
-        cat3_discount_rate: parseFloat(customerForm.cat3_discount_rate) / 100
+        cat1_discount_rate: Math.round(parseFloat(customerForm.cat1_discount_rate) * 100) / 10000,
+        cat2_discount_rate: Math.round(parseFloat(customerForm.cat2_discount_rate) * 100) / 10000,
+        cat3_discount_rate: Math.round(parseFloat(customerForm.cat3_discount_rate) * 100) / 10000
       };
 
       let savedCustomer;
@@ -159,6 +165,23 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
       alert('خطأ أثناء المزامنة: ' + err.message);
     } finally {
       setSyncingId(null);
+    }
+  };
+
+  const handleSyncAllAccounts = async () => {
+    try {
+      setIsBatchSyncing(true);
+      const res = await window.api.infosoft.syncAllCustomers();
+      if (res && res.success) {
+        showToast(`تمت مزامنة دليل الحسابات بنجاح: تم استيراد ${res.addedCount} جديد وتحديث ${res.updatedCount} عميل.`);
+        await loadCustomers();
+      } else {
+        alert(res?.message || 'تعذر مزامنة الحسابات من إنفوسوفت.');
+      }
+    } catch (err) {
+      alert('خطأ أثناء مزامنة كافة الحسابات: ' + err.message);
+    } finally {
+      setIsBatchSyncing(false);
     }
   };
 
@@ -285,6 +308,15 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
 
         <div className="flex items-center gap-2 w-full md:w-auto justify-end">
           <button
+            onClick={handleSyncAllAccounts}
+            disabled={isBatchSyncing}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-spruce-900 hover:bg-spruce-800 text-sand-warm rounded-xl text-xs font-bold shadow-sm transition border border-teal-forest"
+            title="مزامنة وتحديث كافة حسابات العملاء من قاعدة بيانات إنفوسوفت ERP"
+          >
+            <RotateCw className={`w-4 h-4 text-gold-bronze ${isBatchSyncing ? 'animate-spin' : ''}`} />
+            {isBatchSyncing ? 'جاري المزامنة...' : 'مزامنة كافة الحسابات'}
+          </button>
+          <button
             onClick={handleOpenInfosoftSync}
             className="flex items-center gap-2 px-4 py-2.5 bg-spruce-900 hover:bg-spruce-800 text-sand-warm rounded-xl text-xs font-bold shadow-sm transition border border-teal-forest"
           >
@@ -358,11 +390,11 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
 
                     <td className="py-3.5 px-4 text-slate-700 font-semibold">
                       <div className="flex items-center gap-1.5 text-[11px]">
-                        <span className="text-rose-600 font-bold" title="فئة 1: لا تشمل">ف1: {(Number(cust.cat1_discount_rate !== undefined ? cust.cat1_discount_rate : 0) * 100).toFixed(0)}%</span>
+                        <span className="text-rose-600 font-bold" title="فئة 1: لا تشمل">ف1: {rateToPercent(cust.cat1_discount_rate, 0)}%</span>
                         <span className="text-slate-300">|</span>
-                        <span className="text-amber-600 font-bold" title="فئة 2: مخفض">ف2: {(Number(cust.cat2_discount_rate !== undefined ? cust.cat2_discount_rate : 0.03) * 100).toFixed(0)}%</span>
+                        <span className="text-amber-600 font-bold" title="فئة 2: مخفض">ف2: {rateToPercent(cust.cat2_discount_rate, 3)}%</span>
                         <span className="text-slate-300">|</span>
-                        <span className="text-emerald-600 font-bold" title="فئة 3: عام">ف3: {(Number(cust.cat3_discount_rate !== undefined ? cust.cat3_discount_rate : (cust.default_discount_rate || 0.07)) * 100).toFixed(0)}%</span>
+                        <span className="text-emerald-600 font-bold" title="فئة 3: عام">ف3: {rateToPercent(cust.cat3_discount_rate !== undefined ? cust.cat3_discount_rate : (cust.default_discount_rate || 0.07), 7)}%</span>
                       </div>
                       <div className="text-slate-400 text-[10px] font-normal">{cust.default_grace_days || 30} يوم مهلة سداد</div>
                     </td>

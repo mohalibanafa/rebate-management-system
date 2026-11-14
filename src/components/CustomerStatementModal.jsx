@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, Printer, FileText, CheckCircle2, AlertTriangle, 
-  ShieldCheck, CornerDownLeft, Clock, Sparkles
+  ShieldCheck, CornerDownLeft, Clock, Sparkles, RotateCw,
+  Tag, CheckSquare, Square, Layers, Info
 } from 'lucide-react';
+
+const cleanRate = (rate, defaultVal = 0) => {
+  if (rate === undefined || rate === null || isNaN(rate)) return defaultVal;
+  return Math.round((Number(rate) * 100 + Number.EPSILON) * 100) / 100;
+};
 
 export default function CustomerStatementModal({ customerId, isOpen, onClose, onRefreshRequired, isReadOnly }) {
   const [statement, setStatement] = useState(null);
@@ -18,16 +24,29 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
   const [rate2, setRate2] = useState(3);
   const [rate3, setRate3] = useState(7);
   const [graceDays, setGraceDays] = useState(30);
+
+  // InfoSoft live sync states
   const [isSyncing, setIsSyncing] = useState(false);
-  const [updatingCatInvId, setUpdatingCatInvId] = useState(null);
+  const [syncStatus, setSyncStatus] = useState(null); // { type: 'success' | 'warning' | 'info', message: string }
+
+  // Multi-step Category Change Modal states
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState([]);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [targetCategory, setTargetCategory] = useState(3);
+  const [customCatRate, setCustomCatRate] = useState('');
+  const [isApplyingCategory, setIsApplyingCategory] = useState(false);
 
   useEffect(() => {
     if (isOpen && customerId) {
-      loadStatement();
+      loadStatement(true); // autoSync on open
+    } else {
+      setSelectedInvoiceIds([]);
+      setIsCategoryModalOpen(false);
+      setSyncStatus(null);
     }
   }, [isOpen, customerId]);
 
-  const loadStatement = async () => {
+  const loadStatement = async (autoSync = false) => {
     try {
       setLoading(true);
       setError(null);
@@ -35,33 +54,91 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
       setStatement(data);
       if (data?.customer) {
         setCustEmail(data.customer.email || '');
-        setRate1(data.customer.cat1_discount_rate !== undefined ? data.customer.cat1_discount_rate * 100 : 0);
-        setRate2(data.customer.cat2_discount_rate !== undefined ? data.customer.cat2_discount_rate * 100 : 3);
-        setRate3(data.customer.cat3_discount_rate !== undefined ? data.customer.cat3_discount_rate * 100 : (data.customer.default_discount_rate * 100 || 7));
+        setRate1(cleanRate(data.customer.cat1_discount_rate, 0));
+        setRate2(cleanRate(data.customer.cat2_discount_rate, 3));
+        setRate3(cleanRate(data.customer.cat3_discount_rate, cleanRate(data.customer.default_discount_rate, 7)));
         setGraceDays(data.customer.default_grace_days || 30);
+      }
+      setLoading(false);
+
+      // Auto-sync customer transactions from InfoSoft upon opening
+      if (autoSync && data?.customer?.accounting_system_id) {
+        syncFromInfosoftInternal(data.customer, true);
       }
     } catch (err) {
       setError(err.message || 'فشل في تحميل كشف الحساب.');
-    } finally {
       setLoading(false);
     }
+  };
+
+  const syncFromInfosoftInternal = async (cust, silent = false) => {
+    const accId = cust?.accounting_system_id || statement?.customer?.accounting_system_id;
+    if (!accId) return;
+
+    try {
+      setIsSyncing(true);
+      if (!silent) setSyncStatus({ type: 'info', message: 'جاري جلب وتدقيق أحدث الفواتير والمرتجعات من إنفوسوفت...' });
+
+      const emailVal = custEmail || cust?.email || '';
+      const r1 = Math.round(parseFloat(rate1) * 100) / 10000;
+      const r2 = Math.round(parseFloat(rate2) * 100) / 10000;
+      const r3 = Math.round(parseFloat(rate3) * 100) / 10000;
+
+      await window.api.infosoft.syncCustomer(accId, {
+        email: emailVal.trim(),
+        cat1_discount_rate: isNaN(r1) ? 0.00 : r1,
+        cat2_discount_rate: isNaN(r2) ? 0.03 : r2,
+        cat3_discount_rate: isNaN(r3) ? 0.07 : r3,
+        grace_days: parseInt(graceDays, 10) || 30
+      });
+
+      const freshData = await window.api.getCustomerStatement(customerId);
+      setStatement(freshData);
+      setSyncStatus({
+        type: 'success',
+        message: `تم التحديث اللحظي من إنفوسوفت بنجاح (${new Date().toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })})`
+      });
+      if (onRefreshRequired) onRefreshRequired();
+      if (!silent) {
+        alert(`تمت مزامنة وتحديث كشف حساب العميل [${accId}] من إنفوسوفت بنجاح!`);
+      }
+    } catch (err) {
+      console.warn('InfoSoft auto-sync error:', err);
+      setSyncStatus({
+        type: 'warning',
+        message: 'يعمل بالبيانات المسجلة محلياً (تعذر الاتصال المباشر بقاعدة إنفوسوفت)'
+      });
+      if (!silent) {
+        alert('تعذر التحديث من إنفوسوفت: ' + (err.message || String(err)));
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleManualSync = () => {
+    syncFromInfosoftInternal(statement?.customer, false);
   };
 
   const handleSaveRates = async () => {
     try {
       if (!statement?.customer?.id) return;
+      const r1 = Math.round(parseFloat(rate1) * 100) / 10000;
+      const r2 = Math.round(parseFloat(rate2) * 100) / 10000;
+      const r3 = Math.round(parseFloat(rate3) * 100) / 10000;
+
       await window.api.updateCustomer(statement.customer.id, {
         name: statement.customer.name,
         accounting_system_id: statement.customer.accounting_system_id,
         email: custEmail.trim(),
         phone: statement.customer.phone,
-        default_discount_rate: parseFloat(rate3) / 100,
-        default_grace_days: parseInt(graceDays, 10),
-        cat1_discount_rate: parseFloat(rate1) / 100,
-        cat2_discount_rate: parseFloat(rate2) / 100,
-        cat3_discount_rate: parseFloat(rate3) / 100
+        default_discount_rate: isNaN(r3) ? 0.07 : r3,
+        default_grace_days: parseInt(graceDays, 10) || 30,
+        cat1_discount_rate: isNaN(r1) ? 0.00 : r1,
+        cat2_discount_rate: isNaN(r2) ? 0.03 : r2,
+        cat3_discount_rate: isNaN(r3) ? 0.07 : r3
       });
-      await loadStatement();
+      await loadStatement(false);
       if (onRefreshRequired) onRefreshRequired();
       alert('تم حفظ وتحديث بيانات ونسب العميل بنجاح.');
     } catch (err) {
@@ -69,25 +146,72 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
     }
   };
 
-  const handleSyncFromInfosoft = async () => {
+  const handleToggleSelectAll = () => {
+    if (!statement?.breakdown) return;
+    if (selectedInvoiceIds.length === statement.breakdown.length) {
+      setSelectedInvoiceIds([]);
+    } else {
+      setSelectedInvoiceIds(statement.breakdown.map(i => i.id));
+    }
+  };
+
+  const handleToggleSelectInvoice = (id) => {
+    setSelectedInvoiceIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleOpenCategoryModal = (invoiceId = null) => {
+    if (invoiceId) {
+      setSelectedInvoiceIds([invoiceId]);
+      const inv = statement?.breakdown?.find(i => i.id === invoiceId);
+      if (inv) {
+        setTargetCategory(inv.category_id || 3);
+        setCustomCatRate(cleanRate(inv.discount_rate, 3));
+      }
+    } else {
+      if (selectedInvoiceIds.length === 0) return;
+      setTargetCategory(3);
+      setCustomCatRate('');
+    }
+    setIsCategoryModalOpen(true);
+  };
+
+  const handleApplyCategoryChange = async () => {
+    if (selectedInvoiceIds.length === 0) return;
     try {
-      setIsSyncing(true);
-      const accId = statement?.customer?.accounting_system_id;
-      if (!accId) return;
-      await window.api.infosoft.syncCustomer(accId, {
-        email: custEmail.trim(),
-        cat1_discount_rate: parseFloat(rate1) / 100,
-        cat2_discount_rate: parseFloat(rate2) / 100,
-        cat3_discount_rate: parseFloat(rate3) / 100,
-        grace_days: parseInt(graceDays, 10)
-      });
-      await loadStatement();
+      setIsApplyingCategory(true);
+      let customRateVal = null;
+      if (targetCategory === 2 && customCatRate !== '' && !isNaN(customCatRate)) {
+        customRateVal = Math.round(parseFloat(customCatRate) * 100) / 10000;
+      }
+
+      let updatedStatement;
+      if (window.api.updateInvoicesBatchCategory) {
+        updatedStatement = await window.api.updateInvoicesBatchCategory(
+          selectedInvoiceIds,
+          targetCategory,
+          customRateVal
+        );
+      } else {
+        for (const id of selectedInvoiceIds) {
+          updatedStatement = await window.api.updateInvoiceCategory(id, targetCategory, customRateVal);
+        }
+      }
+
+      if (updatedStatement) {
+        setStatement(updatedStatement);
+      } else {
+        await loadStatement(false);
+      }
+
+      setIsCategoryModalOpen(false);
+      setSelectedInvoiceIds([]);
       if (onRefreshRequired) onRefreshRequired();
-      alert(`تمت مزامنة بيانات العميل [${accId}] من قاعدة بيانات إنفوسوفت بنجاح!`);
     } catch (err) {
-      alert('فشل في مزامنة إنفوسوفت: ' + err.message);
+      alert('خطأ أثناء تطبيق تغيير الفئة: ' + err.message);
     } finally {
-      setIsSyncing(false);
+      setIsApplyingCategory(false);
     }
   };
 
@@ -190,6 +314,15 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
 
           <div className="flex items-center gap-2">
             <button
+              onClick={handleManualSync}
+              disabled={loading || isSyncing}
+              className="flex items-center gap-1.5 px-3 py-2 bg-spruce-800 hover:bg-spruce-700 text-sand-warm rounded-xl text-xs font-bold transition border border-teal-forest shadow-sm"
+              title="مزامنة فورية وتحديث كشف الحساب من إنفوسوفت ERP"
+            >
+              <RotateCw className={`w-4 h-4 text-gold-bronze ${isSyncing ? 'animate-spin' : ''}`} />
+              {isSyncing ? 'جاري التحديث...' : 'تحديث يدوي'}
+            </button>
+            <button
               onClick={handlePrint}
               disabled={loading}
               className="flex items-center gap-1.5 px-3 py-2 bg-teal-forest hover:bg-teal-forest-hover text-sand-warm rounded-xl text-xs font-bold transition border border-sage-soft/30"
@@ -216,6 +349,33 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
+          {/* Live Sync Status Banner */}
+          {syncStatus && (
+            <div className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition-all ${
+              syncStatus.type === 'success' 
+                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' 
+                : syncStatus.type === 'warning' 
+                  ? 'bg-amber-50 text-amber-800 border border-amber-200' 
+                  : 'bg-teal-50 text-teal-800 border border-teal-200'
+            }`}>
+              <div className="flex items-center gap-2">
+                {syncStatus.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                ) : syncStatus.type === 'warning' ? (
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                ) : (
+                  <RotateCw className="w-4 h-4 text-teal-600 shrink-0 animate-spin" />
+                )}
+                <span>{syncStatus.message}</span>
+              </div>
+              {isSyncing && (
+                <span className="text-[11px] text-teal-700 flex items-center gap-1">
+                  <RotateCw className="w-3 h-3 animate-spin" /> جاري الجلب
+                </span>
+              )}
+            </div>
+          )}
+
           {loading ? (
             <div className="py-20 text-center text-slate-500">
               <div className="animate-spin w-8 h-8 border-4 border-teal-forest border-t-transparent rounded-full mx-auto mb-3"></div>
@@ -310,7 +470,7 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                             <td className="py-2.5 px-3 text-rose-700 font-semibold">-{(cat.returnsBeforeVat || cat.returns || 0).toLocaleString()} ر.س</td>
                             <td className="py-2.5 px-3 font-bold text-spruce-900">{(cat.netSalesBeforeVat || cat.net || 0).toLocaleString()} ر.س</td>
                             <td className="py-2.5 px-3 font-mono font-bold text-slate-700">
-                              {((cat.discountRate !== undefined ? cat.discountRate : (cat.id === 1 ? rate1/100 : (cat.id === 2 ? rate2/100 : rate3/100))) * 100).toFixed(1)}%
+                              {cleanRate(cat.discountRate !== undefined ? cat.discountRate : (cat.id === 1 ? rate1/100 : (cat.id === 2 ? rate2/100 : rate3/100)))}%
                             </td>
                             <td className="py-2.5 px-3 font-black text-gold-bronze">
                               {(cat.earnedDiscount || cat.earned || 0).toLocaleString()} ر.س
@@ -422,10 +582,50 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                   </span>
                 </div>
 
+                {/* Batch Selection Action Bar */}
+                {selectedInvoiceIds.length > 0 && (
+                  <div className="bg-teal-50 border-b border-teal-200 px-4 py-2.5 flex items-center justify-between no-print animate-fade-in">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black text-teal-900">
+                        تم تحديد {selectedInvoiceIds.length} فاتورة
+                      </span>
+                      <span className="text-[11px] text-teal-700">
+                        (من إجمالي {statement.breakdown.length})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleOpenCategoryModal()}
+                        disabled={isReadOnly}
+                        className="px-3.5 py-1.5 bg-teal-forest hover:bg-teal-forest-hover text-sand-warm rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm"
+                      >
+                        <Tag className="w-3.5 h-3.5 text-gold-bronze" />
+                        تغيير فئة الخصم للفواتير المحددة
+                      </button>
+                      <button
+                        onClick={() => setSelectedInvoiceIds([])}
+                        className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition"
+                      >
+                        إلغاء التحديد
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="overflow-x-auto">
                   <table className="w-full text-right text-xs">
                     <thead className="bg-slate-50/80 text-spruce-900 border-b border-slate-200 uppercase font-bold text-[11px]">
                       <tr>
+                        <th className="py-2.5 px-3 w-8 text-center no-print">
+                          <input
+                            type="checkbox"
+                            checked={selectedInvoiceIds.length > 0 && selectedInvoiceIds.length === statement.breakdown.length}
+                            onChange={handleToggleSelectAll}
+                            disabled={isReadOnly || statement.breakdown.length === 0}
+                            className="w-4 h-4 rounded text-teal-forest border-slate-300 focus:ring-teal-forest cursor-pointer"
+                            title="تحديد كل الفواتير"
+                          />
+                        </th>
                         <th className="py-2.5 px-3">رقم الفاتورة</th>
                         <th className="py-2.5 px-3">التاريخ</th>
                         <th className="py-2.5 px-3">بيان الفاتورة (custnm)</th>
@@ -444,7 +644,7 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                     <tbody className="divide-y divide-slate-100">
                       {statement.breakdown.length === 0 ? (
                         <tr>
-                          <td colSpan="13" className="py-8 text-center text-slate-400">
+                          <td colSpan="14" className="py-8 text-center text-slate-400">
                             لا توجد فواتير مسجلة لهذا العميل حتى الآن.
                           </td>
                         </tr>
@@ -452,7 +652,16 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                         statement.breakdown.map((inv) => (
                           <React.Fragment key={inv.id}>
                             {/* Main Invoice Row */}
-                            <tr className="hover:bg-slate-50/80 transition-colors font-medium">
+                            <tr className={`hover:bg-slate-50/80 transition-colors font-medium ${selectedInvoiceIds.includes(inv.id) ? 'bg-teal-50/40' : ''}`}>
+                              <td className="py-3 px-3 w-8 text-center no-print">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedInvoiceIds.includes(inv.id)}
+                                  onChange={() => handleToggleSelectInvoice(inv.id)}
+                                  disabled={isReadOnly}
+                                  className="w-4 h-4 rounded text-teal-forest border-slate-300 focus:ring-teal-forest cursor-pointer"
+                                />
+                              </td>
                               <td className="py-3 px-3">
                                 <div className="flex items-center gap-1.5">
                                   <span className="font-mono font-bold text-spruce-900">{inv.accounting_trans_id}</span>
@@ -468,26 +677,18 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                                 {inv.description || '-'}
                               </td>
                               <td className="py-2 px-3 whitespace-nowrap">
-                                <div className="flex flex-col gap-0.5">
-                                  <select
-                                    value={inv.category_id || 3}
-                                    onChange={(e) => handleCategoryChange(inv.id, e.target.value)}
-                                    disabled={isReadOnly || updatingCatInvId === inv.id}
-                                    className={`text-[10px] font-bold py-1 px-1.5 rounded-lg border cursor-pointer focus:outline-none transition shadow-xs ${
-                                      inv.category_id === 1 
-                                        ? 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100' 
-                                        : inv.category_id === 2 
-                                          ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100' 
-                                          : 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
-                                    }`}
-                                    title="تغيير فئة خصم الفاتورة يدوياً"
-                                  >
-                                    <option value={1}>1. لا تشمل (0%)</option>
-                                    <option value={2}>2. مخفض ({rate2}%)</option>
-                                    <option value={3}>3. عام ({rate3}%)</option>
-                                  </select>
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border shadow-xs ${
+                                    inv.category_id === 1 
+                                      ? 'bg-rose-50 text-rose-800 border-rose-300' 
+                                      : inv.category_id === 2 
+                                        ? 'bg-amber-50 text-amber-900 border-amber-300' 
+                                        : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                                  }`}>
+                                    {inv.category_id === 1 ? '1. لا تشمل (0%)' : inv.category_id === 2 ? `2. مخفض (${(inv.discount_rate * 100).toFixed(1)}%)` : `3. عام (${(inv.discount_rate * 100).toFixed(1)}%)`}
+                                  </span>
                                   {inv.is_category_manual === 1 && (
-                                    <span className="text-[9px] text-teal-forest font-black inline-flex items-center gap-0.5" title="تم تحديد الفئة يدوياً من قبل المستخدم">
+                                    <span className="text-[9px] text-teal-forest font-black" title="تم تحديد الفئة يدوياً من قبل المستخدم">
                                       ★ يدوي
                                     </span>
                                   )}
@@ -498,7 +699,7 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                                 {inv.total_returns > 0 ? `-${inv.total_returns.toLocaleString()} ر.س` : '-'}
                               </td>
                               <td className="py-3 px-3 font-bold text-spruce-900">{inv.net_total.toLocaleString()} ر.س</td>
-                              <td className="py-3 px-3 text-slate-700">{(inv.discount_rate * 100).toFixed(1)}%</td>
+                              <td className="py-3 px-3 text-slate-700 font-mono">{(inv.discount_rate * 100).toFixed(1)}%</td>
                               <td className="py-3 px-3 text-slate-700">{inv.grace_days} يوم</td>
                               <td className="py-3 px-3 font-black text-gold-bronze">
                                 {inv.earned_discount > 0 ? `${inv.earned_discount.toLocaleString()} ر.س` : '0 ر.س'}
@@ -527,36 +728,49 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                                 )}
                               </td>
                               <td className="py-3 px-3 no-print">
-                                {!isReadOnly && (
-                                  inv.is_exception_granted === 1 ? (
+                                <div className="flex items-center gap-1.5">
+                                  {!isReadOnly && (
                                     <button
-                                      onClick={() => handleRevokeException(inv.id)}
-                                      className="text-[11px] text-gold-bronze hover:text-rose-700 underline font-bold"
-                                      title={inv.exception_reason}
+                                      type="button"
+                                      onClick={() => handleOpenCategoryModal(inv.id)}
+                                      className="px-2 py-1 bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-forest border border-slate-200 rounded-lg text-[10px] font-bold transition flex items-center gap-1"
+                                      title="تغيير فئة الخصم لهذه الفاتورة عبر نافذة الاختيار"
                                     >
-                                      إلغاء الاستثناء
+                                      <Tag className="w-3 h-3 text-gold-bronze" />
+                                      تغيير الفئة
                                     </button>
-                                  ) : (
-                                    inv.settlements.some(s => !s.is_eligible) && (
+                                  )}
+                                  {!isReadOnly && (
+                                    inv.is_exception_granted === 1 ? (
                                       <button
-                                        onClick={() => {
-                                          setExceptionModalInv(inv);
-                                          setExceptionReason('');
-                                        }}
-                                        className="text-[11px] bg-sand-light text-spruce-900 border border-sand-warm hover:bg-sand-warm px-2 py-1 rounded transition font-bold"
+                                        onClick={() => handleRevokeException(inv.id)}
+                                        className="text-[11px] text-gold-bronze hover:text-rose-700 underline font-bold"
+                                        title={inv.exception_reason}
                                       >
-                                        اعتماد استثنائي
+                                        إلغاء الاستثناء
                                       </button>
+                                    ) : (
+                                      inv.settlements.some(s => !s.is_eligible) && (
+                                        <button
+                                          onClick={() => {
+                                            setExceptionModalInv(inv);
+                                            setExceptionReason('');
+                                          }}
+                                          className="text-[11px] bg-sand-light text-spruce-900 border border-sand-warm hover:bg-sand-warm px-2 py-1 rounded transition font-bold"
+                                        >
+                                          اعتماد استثنائي
+                                        </button>
+                                      )
                                     )
-                                  )
-                                )}
+                                  )}
+                                </div>
                               </td>
                             </tr>
 
                             {/* Exception Reason Banner */}
                             {inv.is_exception_granted === 1 && (
                               <tr className="bg-sand-light/50">
-                                <td colSpan="13" className="py-1 px-4 text-xs text-spruce-900 border-b border-sand-warm">
+                                <td colSpan="14" className="py-1 px-4 text-xs text-spruce-900 border-b border-sand-warm">
                                   <span className="font-bold text-gold-bronze">ملاحظة الاستثناء الإداري:</span> تم اعتماد الخصم استثنائياً - التبرير: "{inv.exception_reason}"
                                 </td>
                               </tr>
@@ -565,7 +779,7 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                             {/* Nested Returns Rows */}
                             {inv.returns.map((ret) => (
                               <tr key={`ret-${ret.id}`} className="bg-rose-50/40 text-rose-800 text-[11px]">
-                                <td className="py-1.5 px-3 pr-8" colSpan="5">
+                                <td className="py-1.5 px-3 pr-8" colSpan="6">
                                   <div className="flex items-center gap-1.5 flex-wrap">
                                     <CornerDownLeft className="w-3.5 h-3.5 text-rose-500" />
                                     <span>مرتجع بسند <strong>{ret.accounting_trans_id}</strong> بتاريخ {ret.adjustment_date}</span>
@@ -590,7 +804,7 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                             {/* Nested Settlement / Payment Rows */}
                             {inv.settlements.map((settle, sIdx) => (
                               <tr key={`settle-${sIdx}`} className="bg-teal-forest/5 text-slate-700 text-[11px]">
-                                <td className="py-1.5 px-3 pr-8" colSpan="6">
+                                <td className="py-1.5 px-3 pr-8" colSpan="7">
                                   <div className="flex items-center gap-1.5">
                                     <CornerDownLeft className="w-3.5 h-3.5 text-teal-forest" />
                                     <span>
@@ -691,6 +905,160 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Multi-Step Category Change Modal */}
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 z-60 bg-spruce-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-corporate-lg w-full max-w-md border border-slate-200 overflow-hidden animate-scale-in">
+            <div className="p-4 bg-spruce-900 text-sand-warm flex items-center justify-between border-b border-teal-forest">
+              <div className="flex items-center gap-2">
+                <Tag className="w-5 h-5 text-gold-bronze" />
+                <h3 className="font-black text-sm text-sand-warm">
+                  تعديل فئة الخصم للفواتير المحددة
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCategoryModalOpen(false)}
+                className="text-sage-soft hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              {/* Step 1: Invoices Summary */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <div className="text-[11px] text-slate-500 font-bold mb-1.5 flex items-center justify-between">
+                  <span>الخطوة 1: الفواتير المحددة للتعديل</span>
+                  <span className="text-teal-forest font-bold">({selectedInvoiceIds.length} فاتورة)</span>
+                </div>
+                <div className="max-h-24 overflow-y-auto font-mono text-[11px] text-spruce-900 flex flex-wrap gap-1 p-1 bg-white rounded-lg border border-slate-200">
+                  {selectedInvoiceIds.map(id => {
+                    const inv = statement?.breakdown?.find(i => i.id === id);
+                    return (
+                      <span key={id} className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded text-slate-700 font-bold">
+                        {inv?.accounting_trans_id || `#${id}`}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Step 2: Target Category Options */}
+              <div>
+                <div className="text-[11px] text-slate-700 font-bold mb-2">
+                  الخطوة 2: اختر فئة الخصم الجديدة المطلوبة:
+                </div>
+                <div className="space-y-2">
+                  {/* Category 1 */}
+                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                    targetCategory === 1 ? 'bg-rose-50 border-rose-400 ring-1 ring-rose-400' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="targetCat"
+                      checked={targetCategory === 1}
+                      onChange={() => setTargetCategory(1)}
+                      className="mt-0.5 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <div className="flex-1">
+                      <div className="font-bold text-rose-900 flex items-center justify-between">
+                        <span>1. لا تشمل الخصم</span>
+                        <span className="text-[10px] bg-rose-200 text-rose-800 px-1.5 py-0.5 rounded font-mono font-bold">0%</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        استثناء هذه الفواتير من خصم تعجيل الدفع نهائياً (نسبة الخصم 0%).
+                      </div>
+                    </div>
+                  </label>
+
+                  {/* Category 2 */}
+                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                    targetCategory === 2 ? 'bg-amber-50 border-amber-400 ring-1 ring-amber-400' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="targetCat"
+                      checked={targetCategory === 2}
+                      onChange={() => setTargetCategory(2)}
+                      className="mt-0.5 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                    />
+                    <div className="flex-1">
+                      <div className="font-bold text-amber-900 flex items-center justify-between">
+                        <span>2. مخفض</span>
+                        <span className="text-[10px] bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded font-mono font-bold">
+                          {customCatRate !== '' && !isNaN(customCatRate) ? `${customCatRate}% (مخصص)` : `${rate2}%`}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        فئة الفواتير المخفضة، وفق النسبة الافتراضية للعميل ({rate2}%) أو إدخال نسبة خاصة.
+                      </div>
+                      {targetCategory === 2 && (
+                        <div className="mt-2.5 pt-2 border-t border-amber-200/60 flex items-center gap-2">
+                          <span className="text-[11px] text-amber-900 font-bold">نسبة خاصة اختيارية (%):</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            value={customCatRate}
+                            onChange={(e) => setCustomCatRate(e.target.value)}
+                            placeholder={String(rate2)}
+                            className="w-20 px-2 py-1 bg-white border border-amber-300 rounded text-xs font-mono font-bold text-center focus:outline-none"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </label>
+
+                  {/* Category 3 */}
+                  <label className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                    targetCategory === 3 ? 'bg-emerald-50 border-emerald-400 ring-1 ring-emerald-400' : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="targetCat"
+                      checked={targetCategory === 3}
+                      onChange={() => setTargetCategory(3)}
+                      className="mt-0.5 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <div className="flex-1">
+                      <div className="font-bold text-emerald-900 flex items-center justify-between">
+                        <span>3. عام (خاضع للخصم الأساسي)</span>
+                        <span className="text-[10px] bg-emerald-200 text-emerald-900 px-1.5 py-0.5 rounded font-mono font-bold">{rate3}%</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5">
+                        الفواتير القياسية الخاضعة لنسبة الخصم الكاملة المعتمدة للعميل ({rate3}%).
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Step 3: Confirmation and Actions */}
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApplyCategoryChange}
+                  disabled={isApplyingCategory}
+                  className="px-5 py-2 bg-teal-forest hover:bg-teal-forest-hover text-sand-warm rounded-xl font-black transition flex items-center gap-1.5 shadow-sm"
+                >
+                  <CheckCircle2 className={`w-4 h-4 text-gold-bronze ${isApplyingCategory ? 'animate-spin' : ''}`} />
+                  {isApplyingCategory ? 'جاري التطبيق...' : 'تأكيد وتطبيق التغيير'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -255,8 +255,18 @@ function getCustomerById(id) {
   return db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
 }
 
+function cleanRate(val, defaultVal = 0) {
+  if (val === undefined || val === null || isNaN(val)) return defaultVal;
+  return Math.round(Number(val) * 10000) / 10000;
+}
+
 function createCustomer(data) {
   const db = getDb();
+  const defaultRate = cleanRate(data.default_discount_rate, 0.07);
+  const cat1Rate = cleanRate(data.cat1_discount_rate, 0.00);
+  const cat2Rate = cleanRate(data.cat2_discount_rate, 0.03);
+  const cat3Rate = cleanRate(data.cat3_discount_rate, defaultRate);
+
   const stmt = db.prepare(`
     INSERT INTO customers (
       accounting_system_id, name, email, phone, default_discount_rate, default_grace_days,
@@ -268,17 +278,22 @@ function createCustomer(data) {
     data.name.trim(),
     data.email ? data.email.trim() : '',
     data.phone ? data.phone.trim() : null,
-    Number(data.default_discount_rate) || 0.07,
+    defaultRate,
     Number(data.default_grace_days) || 30,
-    data.cat1_discount_rate !== undefined ? Number(data.cat1_discount_rate) : 0.00,
-    data.cat2_discount_rate !== undefined ? Number(data.cat2_discount_rate) : 0.03,
-    data.cat3_discount_rate !== undefined ? Number(data.cat3_discount_rate) : 0.07
+    cat1Rate,
+    cat2Rate,
+    cat3Rate
   );
   return getCustomerById(res.lastInsertRowid);
 }
 
 function updateCustomer(id, data) {
   const db = getDb();
+  const defaultRate = cleanRate(data.default_discount_rate, 0.07);
+  const cat1Rate = cleanRate(data.cat1_discount_rate, 0.00);
+  const cat2Rate = cleanRate(data.cat2_discount_rate, 0.03);
+  const cat3Rate = cleanRate(data.cat3_discount_rate, defaultRate);
+
   db.prepare(`
     UPDATE customers SET
       accounting_system_id = ?,
@@ -296,11 +311,11 @@ function updateCustomer(id, data) {
     data.name.trim(),
     data.email ? data.email.trim() : '',
     data.phone ? data.phone.trim() : null,
-    Number(data.default_discount_rate) || 0.07,
+    defaultRate,
     Number(data.default_grace_days) || 30,
-    data.cat1_discount_rate !== undefined ? Number(data.cat1_discount_rate) : 0.00,
-    data.cat2_discount_rate !== undefined ? Number(data.cat2_discount_rate) : 0.03,
-    data.cat3_discount_rate !== undefined ? Number(data.cat3_discount_rate) : 0.07,
+    cat1Rate,
+    cat2Rate,
+    cat3Rate,
     id
   );
   return getCustomerById(id);
@@ -458,40 +473,75 @@ function revokeInvoiceException(id) {
   return db.prepare('SELECT * FROM invoices WHERE id = ?').get(id);
 }
 
+function runInTransaction(db, fn) {
+  if (typeof db.transaction === 'function') {
+    return db.transaction(fn)();
+  }
+  db.exec('BEGIN TRANSACTION');
+  try {
+    const res = fn();
+    db.exec('COMMIT');
+    return res;
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } catch (e) {}
+    throw err;
+  }
+}
+
 function updateInvoiceCategory(id, newCategoryId, customRate = null) {
+  const statement = updateInvoicesBatchCategory([id], newCategoryId, customRate);
+  if (!statement) {
+    const inv = getDb().prepare('SELECT * FROM invoices WHERE id = ?').get(id);
+    if (!inv) throw new Error('الفاتورة غير موجودة.');
+  }
+  return statement;
+}
+
+function updateInvoicesBatchCategory(invoiceIds, newCategoryId, customRate = null) {
   const db = getDb();
-  const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(id);
-  if (!invoice) throw new Error('الفاتورة غير موجودة.');
+  if (!Array.isArray(invoiceIds) || invoiceIds.length === 0) return null;
 
-  const customer = getCustomerById(invoice.customer_id);
   const catId = parseInt(newCategoryId, 10);
+  let targetCustomerId = null;
 
-  let catName = '3. عام (خاضع للخصم)';
-  let newRate = customer.cat3_discount_rate !== undefined ? customer.cat3_discount_rate : (customer.default_discount_rate || 0.07);
+  runInTransaction(db, () => {
+    for (const rawId of invoiceIds) {
+      const id = Number(rawId);
+      const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(id);
+      if (!invoice) continue;
+      if (!targetCustomerId) targetCustomerId = invoice.customer_id;
 
-  if (catId === 1) {
-    catName = '1. لا تشمل الخصم';
-    newRate = customer.cat1_discount_rate !== undefined ? customer.cat1_discount_rate : 0.00;
-  } else if (catId === 2) {
-    catName = '2. مخفض';
-    newRate = customer.cat2_discount_rate !== undefined ? customer.cat2_discount_rate : 0.03;
-  }
+      const customer = getCustomerById(invoice.customer_id);
+      let catName = '3. عام (خاضع للخصم)';
+      let newRate = customer.cat3_discount_rate !== undefined ? customer.cat3_discount_rate : (customer.default_discount_rate || 0.07);
 
-  if (customRate !== null && customRate !== undefined && !isNaN(customRate)) {
-    newRate = Number(customRate);
-  }
+      if (catId === 1) {
+        catName = '1. لا تشمل الخصم';
+        newRate = customer.cat1_discount_rate !== undefined ? customer.cat1_discount_rate : 0.00;
+      } else if (catId === 2) {
+        catName = '2. مخفض';
+        newRate = customer.cat2_discount_rate !== undefined ? customer.cat2_discount_rate : 0.03;
+      }
 
-  db.prepare(`
-    UPDATE invoices SET
-      category_id = ?,
-      category_name = ?,
-      discount_rate = ?,
-      is_category_manual = 1,
-      is_corrected = 1
-    WHERE id = ?
-  `).run(catId, catName, newRate, id);
+      if (customRate !== null && customRate !== undefined && !isNaN(customRate)) {
+        newRate = cleanRate(customRate);
+      } else {
+        newRate = cleanRate(newRate);
+      }
 
-  return getCustomerStatement(customer.id);
+      db.prepare(`
+        UPDATE invoices SET
+          category_id = ?,
+          category_name = ?,
+          discount_rate = ?,
+          is_category_manual = 1,
+          is_corrected = 1
+        WHERE id = ?
+      `).run(catId, catName, newRate, id);
+    }
+  });
+
+  return targetCustomerId ? getCustomerStatement(targetCustomerId) : null;
 }
 
 function createPayment(data) {
@@ -750,6 +800,7 @@ function setSetting(key, value) {
 // -------------------------------------------------------------
 
 const { infosoftService } = require('../services/infosoftBridge');
+const { logger } = require('../services/logger');
 
 async function syncCustomerFromInfoSoft(accountingId, customConfig = {}) {
   const db = getDb();
@@ -763,15 +814,15 @@ async function syncCustomerFromInfoSoft(accountingId, customConfig = {}) {
   let localCust = db.prepare('SELECT * FROM customers WHERE accounting_system_id = ?').get(trimmedId);
 
   const effectiveEmail = customConfig.email || (localCust && localCust.email) || infoCust.email || '';
-  const effectiveCat1Rate = customConfig.cat1_discount_rate !== undefined 
-    ? Number(customConfig.cat1_discount_rate) 
-    : (localCust ? localCust.cat1_discount_rate : 0.00);
-  const effectiveCat2Rate = customConfig.cat2_discount_rate !== undefined 
-    ? Number(customConfig.cat2_discount_rate) 
-    : (localCust ? localCust.cat2_discount_rate : 0.03);
-  const effectiveCat3Rate = customConfig.cat3_discount_rate !== undefined 
-    ? Number(customConfig.cat3_discount_rate) 
-    : (localCust ? localCust.cat3_discount_rate : 0.07);
+  const effectiveCat1Rate = cleanRate(customConfig.cat1_discount_rate !== undefined 
+    ? customConfig.cat1_discount_rate 
+    : (localCust ? localCust.cat1_discount_rate : 0.00), 0.00);
+  const effectiveCat2Rate = cleanRate(customConfig.cat2_discount_rate !== undefined 
+    ? customConfig.cat2_discount_rate 
+    : (localCust ? localCust.cat2_discount_rate : 0.03), 0.03);
+  const effectiveCat3Rate = cleanRate(customConfig.cat3_discount_rate !== undefined 
+    ? customConfig.cat3_discount_rate 
+    : (localCust ? localCust.cat3_discount_rate : 0.07), 0.07);
   const effectiveGraceDays = customConfig.grace_days !== undefined 
     ? Number(customConfig.grace_days) 
     : (localCust ? localCust.default_grace_days : 30);
@@ -869,7 +920,7 @@ async function syncCustomerFromInfoSoft(accountingId, customConfig = {}) {
     let excReason = null;
 
     if (manual) {
-      rate = manual.discount_rate;
+      rate = cleanRate(manual.discount_rate, effectiveCat3Rate);
       isManual = manual.is_category_manual ? 1 : 0;
       isException = manual.is_exception_granted ? 1 : 0;
       excReason = manual.exception_reason || null;
@@ -950,6 +1001,77 @@ async function syncCustomerFromInfoSoft(accountingId, customConfig = {}) {
   return getCustomerStatement(customerId);
 }
 
+async function syncAllCustomersFromInfoSoft() {
+  const db = getDb();
+  logger.info('INFOSOFT', 'Starting batch customer accounts directory sync from InfoSoft...');
+
+  const infoCusts = await infosoftService.getAllCustomers();
+  if (!Array.isArray(infoCusts) || infoCusts.length === 0) {
+    logger.warn('INFOSOFT', 'No customer records returned from InfoSoft during batch sync.');
+    return { success: false, syncedCount: 0, message: 'لم يتم العثور على سجلات عملاء في إنفوسوفت.' };
+  }
+
+  const checkStmt = db.prepare('SELECT id, email, phone FROM customers WHERE accounting_system_id = ?');
+  const insertStmt = db.prepare(`
+    INSERT INTO customers (
+      accounting_system_id, name, email, phone, default_discount_rate, default_grace_days,
+      cat1_discount_rate, cat2_discount_rate, cat3_discount_rate
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const updateStmt = db.prepare(`
+    UPDATE customers SET
+      name = ?,
+      email = CASE WHEN (email IS NULL OR email = '') THEN ? ELSE email END,
+      phone = CASE WHEN (phone IS NULL OR phone = '') THEN ? ELSE phone END
+    WHERE id = ?
+  `);
+
+  let addedCount = 0;
+  let updatedCount = 0;
+
+  runInTransaction(db, () => {
+    for (const cust of infoCusts) {
+      const code = String(cust.accounting_system_id || '').trim();
+      if (!code) continue;
+
+      const existing = checkStmt.get(code);
+      if (existing) {
+        updateStmt.run(
+          cust.name.trim(),
+          cust.email ? cust.email.trim() : '',
+          cust.phone ? cust.phone.trim() : '',
+          existing.id
+        );
+        updatedCount++;
+      } else {
+        insertStmt.run(
+          code,
+          cust.name.trim(),
+          cust.email ? cust.email.trim() : '',
+          cust.phone ? cust.phone.trim() : '',
+          0.07,
+          30,
+          0.00,
+          0.03,
+          0.07
+        );
+        addedCount++;
+      }
+    }
+  });
+
+  setSetting('initial_infosoft_sync_done', '1');
+  logger.info('INFOSOFT', `Batch customer directory sync completed: ${addedCount} added, ${updatedCount} updated. Total: ${infoCusts.length}`);
+
+  return {
+    success: true,
+    total: infoCusts.length,
+    addedCount,
+    updatedCount,
+    syncedCount: addedCount + updatedCount
+  };
+}
+
 module.exports = {
   openDatabase,
   getDb,
@@ -965,6 +1087,7 @@ module.exports = {
   grantInvoiceException,
   revokeInvoiceException,
   updateInvoiceCategory,
+  updateInvoicesBatchCategory,
   createPayment,
   updatePayment,
   createAdjustment,
@@ -983,5 +1106,6 @@ module.exports = {
   cancelEmail,
   getSetting,
   setSetting,
-  syncCustomerFromInfoSoft
+  syncCustomerFromInfoSoft,
+  syncAllCustomersFromInfoSoft
 };

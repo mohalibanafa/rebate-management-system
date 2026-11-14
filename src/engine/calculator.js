@@ -25,6 +25,11 @@ function parseDateToDays(dateStr) {
  * @param {Array} adjustments - List of credit notes/returns/damaged goods
  * @returns {Object} Comprehensive calculation result
  */
+function cleanRate(val, defaultVal = 0) {
+  if (val === undefined || val === null || isNaN(val)) return defaultVal;
+  return Math.round(Number(val) * 10000) / 10000;
+}
+
 function calculateCustomerLedger(invoices = [], payments = [], adjustments = [], customer = {}) {
   // 1. Sort invoices chronologically (by invoice_date, then id)
   const sortedInvoices = [...invoices].sort((a, b) => {
@@ -42,7 +47,7 @@ function calculateCustomerLedger(invoices = [], payments = [], adjustments = [],
       accounting_trans_id: inv.accounting_trans_id,
       invoice_date: inv.invoice_date,
       gross_amount: grossAmount,
-      discount_rate: Number(inv.discount_rate) || 0,
+      discount_rate: cleanRate(inv.discount_rate, 0),
       grace_days: Number(inv.grace_days) || 0,
       category_id: inv.category_id || 3,
       category_name: inv.category_name || '3. عام (خاضع للخصم)',
@@ -210,9 +215,9 @@ function calculateCustomerLedger(invoices = [], payments = [], adjustments = [],
   const customerBalance = Math.round((totalRemainingUnpaid - unallocatedCash) * 100) / 100;
 
   // 7. Categories Summary Breakdown (1: لا تشمل الخصم, 2: مخفض, 3: عام)
-  const cat1Rate = customer?.cat1_discount_rate !== undefined ? customer.cat1_discount_rate : 0.00;
-  const cat2Rate = customer?.cat2_discount_rate !== undefined ? customer.cat2_discount_rate : 0.03;
-  const cat3Rate = customer?.cat3_discount_rate !== undefined ? customer.cat3_discount_rate : (customer?.default_discount_rate || 0.07);
+  const cat1Rate = cleanRate(customer?.cat1_discount_rate !== undefined ? customer.cat1_discount_rate : 0.00, 0.00);
+  const cat2Rate = cleanRate(customer?.cat2_discount_rate !== undefined ? customer.cat2_discount_rate : 0.03, 0.03);
+  const cat3Rate = cleanRate(customer?.cat3_discount_rate !== undefined ? customer.cat3_discount_rate : (customer?.default_discount_rate || 0.07), 0.07);
 
   const categoriesMap = {
     1: { id: 1, key: 'NO_DISCOUNT', name: '1. لا تشمل الخصم', discountRate: cat1Rate, invoiceCount: 0, salesBeforeVat: 0, returnCount: 0, returnsBeforeVat: 0, netSalesBeforeVat: 0, earnedDiscount: 0 },
