@@ -30,6 +30,15 @@ export default function SettingsView({ onOpenYearClose, isReadOnly }) {
   const [recentEmails, setRecentEmails] = useState([]);
   const [isLoadingQueue, setIsLoadingQueue] = useState(false);
 
+  // InfoSoft ERP Settings
+  const [infosoftServer, setInfosoftServer] = useState('localhost,49916');
+  const [infosoftCurrentYearDb, setInfosoftCurrentYearDb] = useState('dbc01y26');
+  const [infosoftPrevYearDb, setInfosoftPrevYearDb] = useState('dbc01y25');
+  const [isTestingInfosoft, setIsTestingInfosoft] = useState(false);
+  const [infosoftTestResult, setInfosoftTestResult] = useState(null);
+  const [isSavingInfosoft, setIsSavingInfosoft] = useState(false);
+  const [infosoftSaveMessage, setInfosoftSaveMessage] = useState(null);
+
   // Feedback Messages
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState(null);
@@ -55,8 +64,56 @@ export default function SettingsView({ onOpenYearClose, isReadOnly }) {
         setSmtpFrom(res.smtp_config.from || '');
         setTestEmailTarget(res.smtp_config.user || '');
       }
+
+      if (window.api?.infosoft?.configure) {
+        const infosoftConf = await window.api.infosoft.configure();
+        if (infosoftConf) {
+          if (infosoftConf.server) setInfosoftServer(infosoftConf.server);
+          if (infosoftConf.currentYearDb) setInfosoftCurrentYearDb(infosoftConf.currentYearDb);
+          if (infosoftConf.prevYearDb) setInfosoftPrevYearDb(infosoftConf.prevYearDb);
+        }
+      }
     } catch (err) {
       console.error('Failed to load settings:', err);
+    }
+  };
+
+  const handleTestInfosoft = async () => {
+    setIsTestingInfosoft(true);
+    setInfosoftTestResult(null);
+    try {
+      const res = await window.api.infosoft.getStatus();
+      setInfosoftTestResult({
+        success: res.connected,
+        message: res.connected 
+          ? `تم الاتصال بنجاح! السيرفر: ${res.serverUsed} | قاعدة البيانات الحالية: ${res.currentYearDb} | قاعدة السنة السابقة: ${res.prevYearDb} | عدد العملاء: ${res.customerCount}` 
+          : `فشل الاتصال: ${res.error}`
+      });
+    } catch (err) {
+      setInfosoftTestResult({
+        success: false,
+        message: 'خطأ أثناء فحص الاتصال: ' + err.message
+      });
+    } finally {
+      setIsTestingInfosoft(false);
+    }
+  };
+
+  const handleSaveInfosoftConfig = async () => {
+    setIsSavingInfosoft(true);
+    setInfosoftSaveMessage(null);
+    try {
+      await window.api.infosoft.configure({
+        server: infosoftServer.trim(),
+        currentYearDb: infosoftCurrentYearDb.trim(),
+        prevYearDb: infosoftPrevYearDb.trim()
+      });
+      setInfosoftSaveMessage({ success: true, text: 'تم حفظ إعدادات الاتصال بإنفوسوفت بنجاح.' });
+      setTimeout(() => setInfosoftSaveMessage(null), 3500);
+    } catch (err) {
+      setInfosoftSaveMessage({ success: false, text: 'تعذر حفظ الإعدادات: ' + err.message });
+    } finally {
+      setIsSavingInfosoft(false);
     }
   };
 
@@ -319,6 +376,106 @@ export default function SettingsView({ onOpenYearClose, isReadOnly }) {
                 <Save className="w-4 h-4 text-gold-bronze" />
                 حفظ بيانات المنشأة
               </button>
+            </div>
+          </div>
+
+          {/* InfoSoft ERP Database Connection Card */}
+          <div className="bg-white p-6 rounded-2xl shadow-corporate border border-slate-200/80 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2 text-spruce-900 font-black text-sm">
+                <Server className="w-5 h-5 text-gold-bronze" />
+                الاتصال بقاعدة بيانات إنفوسوفت ERP
+              </div>
+              <span className="text-[10px] bg-teal-forest/10 text-teal-forest font-bold px-2 py-0.5 rounded-full font-mono">
+                SQL Server
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-spruce-900 mb-1">
+                  عنوان الخادم والمنفذ (Server & Port):
+                </label>
+                <input
+                  type="text"
+                  value={infosoftServer}
+                  onChange={(e) => setInfosoftServer(e.target.value)}
+                  placeholder="localhost,49916 أو (localdb)\MSSQLLocalDB"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-spruce-900 focus:bg-white focus:border-teal-forest focus:outline-none transition"
+                />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  الافتراضي: localhost,49916 (مع دعم ذاتي لـ (localdb)\MSSQLLocalDB عند الحاجة)
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-spruce-900 mb-1">
+                    قاعدة السنة الحالية:
+                  </label>
+                  <input
+                    type="text"
+                    value={infosoftCurrentYearDb}
+                    onChange={(e) => setInfosoftCurrentYearDb(e.target.value)}
+                    placeholder="dbc01y26"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-spruce-900 focus:bg-white focus:border-teal-forest focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">سنة 2026</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-spruce-900 mb-1">
+                    قاعدة السنة السابقة:
+                  </label>
+                  <input
+                    type="text"
+                    value={infosoftPrevYearDb}
+                    onChange={(e) => setInfosoftPrevYearDb(e.target.value)}
+                    placeholder="dbc01y25"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-spruce-900 focus:bg-white focus:border-teal-forest focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">لمطابقة مرتجعات 2025</span>
+                </div>
+              </div>
+
+              {infosoftTestResult && (
+                <div className={`p-3 rounded-xl text-xs font-semibold flex items-start gap-2 ${
+                  infosoftTestResult.success ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}>
+                  {infosoftTestResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />}
+                  <span className="whitespace-pre-line leading-relaxed">{infosoftTestResult.message}</span>
+                </div>
+              )}
+
+              {infosoftSaveMessage && (
+                <div className={`p-2.5 rounded-xl text-xs font-semibold ${
+                  infosoftSaveMessage.success ? 'bg-emerald-100 text-emerald-900' : 'bg-rose-100 text-rose-900'
+                }`}>
+                  {infosoftSaveMessage.text}
+                </div>
+              )}
+
+              <div className="pt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleTestInfosoft}
+                  disabled={isTestingInfosoft}
+                  className="flex-1 py-2.5 px-3 bg-spruce-900 hover:bg-spruce-800 text-sand-warm text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm"
+                >
+                  <RotateCw className={`w-3.5 h-3.5 text-gold-bronze ${isTestingInfosoft ? 'animate-spin' : ''}`} />
+                  {isTestingInfosoft ? 'جاري الفحص...' : 'فحص الاتصال بقاعدة إنفوسوفت'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleSaveInfosoftConfig}
+                  disabled={isSavingInfosoft}
+                  className="py-2.5 px-4 bg-teal-forest hover:bg-teal-forest-hover text-sand-warm text-xs font-bold rounded-xl transition shadow-sm flex items-center justify-center gap-1"
+                >
+                  <Save className="w-3.5 h-3.5 text-gold-bronze" />
+                  حفظ
+                </button>
+              </div>
             </div>
           </div>
 

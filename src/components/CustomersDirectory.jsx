@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Search, UserPlus, DollarSign, TrendingUp, 
   AlertCircle, Edit, Trash2, Mail, Phone, Hash, 
-  CheckCircle2, FileText, ArrowUpRight, Send, Sparkles, Check
+  CheckCircle2, FileText, ArrowUpRight, Send, Sparkles, Check, RotateCw
 } from 'lucide-react';
 import CustomerStatementModal from './CustomerStatementModal';
 
@@ -24,9 +24,19 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
     email: '',
     phone: '',
     default_discount_rate: 7,
-    default_grace_days: 30
+    default_grace_days: 30,
+    cat1_discount_rate: 0,
+    cat2_discount_rate: 3,
+    cat3_discount_rate: 7
   });
   const [modalError, setModalError] = useState(null);
+
+  // InfoSoft Sync Modal State
+  const [isInfosoftSyncModalOpen, setIsInfosoftSyncModalOpen] = useState(false);
+  const [infosoftCustomersList, setInfosoftCustomersList] = useState([]);
+  const [loadingInfosoftCusts, setLoadingInfosoftCusts] = useState(false);
+  const [infosoftFilter, setInfosoftFilter] = useState('');
+  const [syncingId, setSyncingId] = useState(null);
 
   // Welcome Email Sending State & Notifications
   const [sendingWelcomeId, setSendingWelcomeId] = useState(null);
@@ -56,7 +66,10 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
       email: '',
       phone: '',
       default_discount_rate: 7,
-      default_grace_days: 30
+      default_grace_days: 30,
+      cat1_discount_rate: 0,
+      cat2_discount_rate: 3,
+      cat3_discount_rate: 7
     });
     setModalError(null);
     setIsCustomerModalOpen(true);
@@ -67,10 +80,13 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
     setCustomerForm({
       name: cust.name,
       accounting_system_id: cust.accounting_system_id,
-      email: cust.email,
+      email: cust.email || '',
       phone: cust.phone || '',
       default_discount_rate: cust.default_discount_rate ? cust.default_discount_rate * 100 : 7,
-      default_grace_days: cust.default_grace_days || 30
+      default_grace_days: cust.default_grace_days || 30,
+      cat1_discount_rate: cust.cat1_discount_rate !== undefined ? cust.cat1_discount_rate * 100 : 0,
+      cat2_discount_rate: cust.cat2_discount_rate !== undefined ? cust.cat2_discount_rate * 100 : 3,
+      cat3_discount_rate: cust.cat3_discount_rate !== undefined ? cust.cat3_discount_rate * 100 : 7
     });
     setModalError(null);
     setIsCustomerModalOpen(true);
@@ -86,8 +102,11 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
         accounting_system_id: customerForm.accounting_system_id.trim(),
         email: customerForm.email.trim(),
         phone: customerForm.phone.trim() || null,
-        default_discount_rate: parseFloat(customerForm.default_discount_rate) / 100,
-        default_grace_days: parseInt(customerForm.default_grace_days, 10)
+        default_discount_rate: parseFloat(customerForm.cat3_discount_rate || customerForm.default_discount_rate) / 100,
+        default_grace_days: parseInt(customerForm.default_grace_days, 10),
+        cat1_discount_rate: parseFloat(customerForm.cat1_discount_rate) / 100,
+        cat2_discount_rate: parseFloat(customerForm.cat2_discount_rate) / 100,
+        cat3_discount_rate: parseFloat(customerForm.cat3_discount_rate) / 100
       };
 
       let savedCustomer;
@@ -104,10 +123,42 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
       if (shouldSendWelcome && savedCustomer?.id) {
         await handleSendWelcomeEmail(savedCustomer.id, savedCustomer.email);
       } else {
-        showToast('تم حفظ بيانات العميل بنجاح.');
+        showToast('تم حفظ بيانات العميل ونسب الفئات بنجاح.');
       }
     } catch (err) {
       setModalError(err.message || 'حدث خطأ أثناء حفظ بيانات العميل.');
+    }
+  };
+
+  const handleOpenInfosoftSync = async () => {
+    try {
+      setIsInfosoftSyncModalOpen(true);
+      setLoadingInfosoftCusts(true);
+      const list = await window.api.infosoft.getCustomers();
+      setInfosoftCustomersList(list || []);
+    } catch (err) {
+      alert('تعذر جلب قائمة عملاء إنفوسوفت: ' + err.message);
+    } finally {
+      setLoadingInfosoftCusts(false);
+    }
+  };
+
+  const handleSyncCustomerDirectly = async (cust) => {
+    try {
+      setSyncingId(cust.accounting_system_id);
+      await window.api.infosoft.syncCustomer(cust.accounting_system_id, {
+        email: cust.email || '',
+        cat1_discount_rate: 0.00,
+        cat2_discount_rate: 0.03,
+        cat3_discount_rate: 0.07,
+        grace_days: 30
+      });
+      await loadCustomers();
+      showToast(`تمت مزامنة العميل [${cust.name}] من إنفوسوفت بنجاح.`);
+    } catch (err) {
+      alert('خطأ أثناء المزامنة: ' + err.message);
+    } finally {
+      setSyncingId(null);
     }
   };
 
@@ -233,6 +284,13 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
         </div>
 
         <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+          <button
+            onClick={handleOpenInfosoftSync}
+            className="flex items-center gap-2 px-4 py-2.5 bg-spruce-900 hover:bg-spruce-800 text-sand-warm rounded-xl text-xs font-bold shadow-sm transition border border-teal-forest"
+          >
+            <Sparkles className="w-4 h-4 text-gold-bronze" />
+            استيراد من إنفوسوفت ERP
+          </button>
           {!isReadOnly && (
             <button
               onClick={handleOpenAddModal}
@@ -299,8 +357,14 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
                     </td>
 
                     <td className="py-3.5 px-4 text-slate-700 font-semibold">
-                      <div>{(cust.default_discount_rate * 100).toFixed(1)}% خصم</div>
-                      <div className="text-slate-400 text-[10px] font-normal">{cust.default_grace_days} يوم مهلة</div>
+                      <div className="flex items-center gap-1.5 text-[11px]">
+                        <span className="text-rose-600 font-bold" title="فئة 1: لا تشمل">ف1: {(Number(cust.cat1_discount_rate !== undefined ? cust.cat1_discount_rate : 0) * 100).toFixed(0)}%</span>
+                        <span className="text-slate-300">|</span>
+                        <span className="text-amber-600 font-bold" title="فئة 2: مخفض">ف2: {(Number(cust.cat2_discount_rate !== undefined ? cust.cat2_discount_rate : 0.03) * 100).toFixed(0)}%</span>
+                        <span className="text-slate-300">|</span>
+                        <span className="text-emerald-600 font-bold" title="فئة 3: عام">ف3: {(Number(cust.cat3_discount_rate !== undefined ? cust.cat3_discount_rate : (cust.default_discount_rate || 0.07)) * 100).toFixed(0)}%</span>
+                      </div>
+                      <div className="text-slate-400 text-[10px] font-normal">{cust.default_grace_days || 30} يوم مهلة سداد</div>
                     </td>
 
                     <td className="py-3.5 px-4 font-bold text-spruce-900">
@@ -476,33 +540,73 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
-                <div>
-                  <label className="block font-bold text-spruce-900 mb-1">نسبة الخصم المقترحة (%):</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="100"
-                    required
-                    value={customerForm.default_discount_rate}
-                    onChange={(e) => setCustomerForm({ ...customerForm, default_discount_rate: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none font-bold"
-                  />
-                </div>
+              <div className="pt-2 border-t border-slate-100">
+                <label className="block font-bold text-spruce-900 mb-2">معدلات الخصم المعتمدة للفئات الثلاث (إنفوسوفت):</label>
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div className="p-2 bg-rose-50/60 border border-rose-200 rounded-xl">
+                    <label className="block text-[11px] font-bold text-rose-800 mb-1">فئة 1 (لا تشمل):</label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        required
+                        value={customerForm.cat1_discount_rate}
+                        onChange={(e) => setCustomerForm({ ...customerForm, cat1_discount_rate: e.target.value })}
+                        className="w-full p-1.5 bg-white border border-rose-300 rounded-lg focus:outline-none text-center font-bold text-xs"
+                      />
+                      <span className="text-xs text-rose-700 font-bold">%</span>
+                    </div>
+                  </div>
 
-                <div>
-                  <label className="block font-bold text-spruce-900 mb-1">مهلة السداد (بالأيام):</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="365"
-                    required
-                    value={customerForm.default_grace_days}
-                    onChange={(e) => setCustomerForm({ ...customerForm, default_grace_days: e.target.value })}
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none font-bold"
-                  />
+                  <div className="p-2 bg-amber-50/60 border border-amber-200 rounded-xl">
+                    <label className="block text-[11px] font-bold text-amber-800 mb-1">فئة 2 (مخفض):</label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        required
+                        value={customerForm.cat2_discount_rate}
+                        onChange={(e) => setCustomerForm({ ...customerForm, cat2_discount_rate: e.target.value })}
+                        className="w-full p-1.5 bg-white border border-amber-300 rounded-lg focus:outline-none text-center font-bold text-xs"
+                      />
+                      <span className="text-xs text-amber-700 font-bold">%</span>
+                    </div>
+                  </div>
+
+                  <div className="p-2 bg-emerald-50/60 border border-emerald-200 rounded-xl">
+                    <label className="block text-[11px] font-bold text-emerald-800 mb-1">فئة 3 (عام):</label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        required
+                        value={customerForm.cat3_discount_rate}
+                        onChange={(e) => setCustomerForm({ ...customerForm, cat3_discount_rate: e.target.value })}
+                        className="w-full p-1.5 bg-white border border-emerald-300 rounded-lg focus:outline-none text-center font-bold text-xs"
+                      />
+                      <span className="text-xs text-emerald-700 font-bold">%</span>
+                    </div>
+                  </div>
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-spruce-900 mb-1">مهلة السداد (بالأيام):</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="365"
+                  required
+                  value={customerForm.default_grace_days}
+                  onChange={(e) => setCustomerForm({ ...customerForm, default_grace_days: e.target.value })}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none font-bold"
+                />
               </div>
 
               {/* Action Buttons inside Modal */}
@@ -538,6 +642,111 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* InfoSoft Sync Modal */}
+      {isInfosoftSyncModalOpen && (
+        <div className="fixed inset-0 z-50 bg-spruce-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-corporate-lg max-w-2xl w-full p-6 border border-slate-200 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div>
+                <h3 className="text-base font-black text-spruce-900 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-gold-bronze" />
+                  استيراد ومزامنة العملاء من قاعدة بيانات إنفوسوفت ERP
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  جلب قائمة الحسابات من localhost,49916 ومزامنة الفواتير والمرتجعات والسدادات تلقائياً وتصنيف الفئات الثلاث.
+                </p>
+              </div>
+              <button
+                onClick={() => setIsInfosoftSyncModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Filter */}
+            <div className="mb-3">
+              <input
+                type="text"
+                value={infosoftFilter}
+                onChange={(e) => setInfosoftFilter(e.target.value)}
+                placeholder="ابحث باسم العميل أو رقمه في إنفوسوفت..."
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white focus:border-teal-forest focus:outline-none"
+              />
+            </div>
+
+            {/* Customer List */}
+            <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100">
+              {loadingInfosoftCusts ? (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  جاري جلب قائمة العملاء من قاعدة بيانات إنفوسوفت...
+                </div>
+              ) : infosoftCustomersList.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  لم يتم العثور على عملاء في إنفوسوفت أو تعذر الاتصال بالقاعدة.
+                </div>
+              ) : (
+                infosoftCustomersList
+                  .filter(c => 
+                    !infosoftFilter || 
+                    c.name.toLowerCase().includes(infosoftFilter.toLowerCase()) || 
+                    c.accounting_system_id.toLowerCase().includes(infosoftFilter.toLowerCase())
+                  )
+                  .map(cust => {
+                    const isAlreadyImported = customers.some(c => String(c.accounting_system_id) === String(cust.accounting_system_id));
+                    const isSyncing = syncingId === cust.accounting_system_id;
+
+                    return (
+                      <div key={cust.accounting_system_id} className="p-3 flex items-center justify-between hover:bg-slate-50/80 transition-colors">
+                        <div>
+                          <div className="font-bold text-xs text-spruce-900 flex items-center gap-2">
+                            <span>{cust.name}</span>
+                            {isAlreadyImported && (
+                              <span className="px-2 py-0.5 rounded text-[10px] bg-teal-forest/10 text-teal-forest font-bold">
+                                موجود بالنظام
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                            رقم الحساب: #{cust.accounting_system_id}
+                          </div>
+                        </div>
+
+                        <div>
+                          <button
+                            onClick={() => handleSyncCustomerDirectly(cust)}
+                            disabled={isSyncing}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm ${
+                              isSyncing 
+                                ? 'bg-slate-200 text-slate-500 cursor-not-allowed' 
+                                : isAlreadyImported 
+                                  ? 'bg-sand-light hover:bg-sand-warm text-spruce-900 border border-sand-warm' 
+                                  : 'bg-teal-forest hover:bg-teal-forest-hover text-sand-warm'
+                            }`}
+                          >
+                            <RotateCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                            {isSyncing ? 'جاري المزامنة...' : isAlreadyImported ? 'إعادة مزامنة وتحديث' : 'استيراد ومزامنة'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+
+            <div className="mt-4 flex justify-between items-center text-xs text-slate-500">
+              <span>إجمالي العملاء المتوفرين في إنفوسوفت: <strong>{infosoftCustomersList.length}</strong></span>
+              <button
+                onClick={() => setIsInfosoftSyncModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold"
+              >
+                إغلاق
+              </button>
+            </div>
           </div>
         </div>
       )}

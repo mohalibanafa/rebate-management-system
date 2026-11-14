@@ -40,6 +40,9 @@ function initSchema(db) {
       phone TEXT,
       default_discount_rate REAL DEFAULT 0.07,
       default_grace_days INTEGER DEFAULT 30,
+      cat1_discount_rate REAL DEFAULT 0.00,
+      cat2_discount_rate REAL DEFAULT 0.03,
+      cat3_discount_rate REAL DEFAULT 0.07,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -52,6 +55,10 @@ function initSchema(db) {
       total_amount REAL NOT NULL CHECK(total_amount > 0),
       discount_rate REAL NOT NULL,
       grace_days INTEGER NOT NULL,
+      category_id INTEGER DEFAULT 3,
+      category_name TEXT DEFAULT '3. عام (خاضع للخصم)',
+      description TEXT,
+      is_category_manual INTEGER DEFAULT 0,
       is_exception_granted INTEGER DEFAULT 0,
       exception_reason TEXT,
       is_corrected INTEGER DEFAULT 0,
@@ -79,6 +86,11 @@ function initSchema(db) {
       adjustment_date DATE NOT NULL,
       amount REAL NOT NULL CHECK(amount > 0),
       type TEXT DEFAULT 'RETURN',
+      category_id INTEGER DEFAULT 3,
+      category_name TEXT DEFAULT '3. عام (خاضع للخصم)',
+      linked_invoice_ref TEXT,
+      linked_invoice_year TEXT,
+      linked_invoice_desc TEXT,
       notes TEXT,
       is_corrected INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -111,6 +123,53 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_adjustments_invoice ON adjustments(invoice_id);
     CREATE INDEX IF NOT EXISTS idx_email_status ON email_queue(status);
   `);
+
+  // Ensure migration columns exist for previously created SQLite databases
+  try {
+    const custCols = db.prepare('PRAGMA table_info(customers)').all().map(c => c.name);
+    if (!custCols.includes('cat1_discount_rate')) {
+      db.exec('ALTER TABLE customers ADD COLUMN cat1_discount_rate REAL DEFAULT 0.00');
+    }
+    if (!custCols.includes('cat2_discount_rate')) {
+      db.exec('ALTER TABLE customers ADD COLUMN cat2_discount_rate REAL DEFAULT 0.03');
+    }
+    if (!custCols.includes('cat3_discount_rate')) {
+      db.exec('ALTER TABLE customers ADD COLUMN cat3_discount_rate REAL DEFAULT 0.07');
+    }
+
+    const invCols = db.prepare('PRAGMA table_info(invoices)').all().map(c => c.name);
+    if (!invCols.includes('category_id')) {
+      db.exec('ALTER TABLE invoices ADD COLUMN category_id INTEGER DEFAULT 3');
+    }
+    if (!invCols.includes('category_name')) {
+      db.exec("ALTER TABLE invoices ADD COLUMN category_name TEXT DEFAULT '3. عام (خاضع للخصم)'");
+    }
+    if (!invCols.includes('description')) {
+      db.exec('ALTER TABLE invoices ADD COLUMN description TEXT');
+    }
+    if (!invCols.includes('is_category_manual')) {
+      db.exec('ALTER TABLE invoices ADD COLUMN is_category_manual INTEGER DEFAULT 0');
+    }
+
+    const adjCols = db.prepare('PRAGMA table_info(adjustments)').all().map(c => c.name);
+    if (!adjCols.includes('category_id')) {
+      db.exec('ALTER TABLE adjustments ADD COLUMN category_id INTEGER DEFAULT 3');
+    }
+    if (!adjCols.includes('category_name')) {
+      db.exec("ALTER TABLE adjustments ADD COLUMN category_name TEXT DEFAULT '3. عام (خاضع للخصم)'");
+    }
+    if (!adjCols.includes('linked_invoice_ref')) {
+      db.exec('ALTER TABLE adjustments ADD COLUMN linked_invoice_ref TEXT');
+    }
+    if (!adjCols.includes('linked_invoice_year')) {
+      db.exec('ALTER TABLE adjustments ADD COLUMN linked_invoice_year TEXT');
+    }
+    if (!adjCols.includes('linked_invoice_desc')) {
+      db.exec('ALTER TABLE adjustments ADD COLUMN linked_invoice_desc TEXT');
+    }
+  } catch (migErr) {
+    console.warn('[DB Migration Warning]:', migErr.message);
+  }
 }
 
 /**
@@ -200,16 +259,20 @@ function createCustomer(data) {
   const db = getDb();
   const stmt = db.prepare(`
     INSERT INTO customers (
-      accounting_system_id, name, email, phone, default_discount_rate, default_grace_days
-    ) VALUES (?, ?, ?, ?, ?, ?)
+      accounting_system_id, name, email, phone, default_discount_rate, default_grace_days,
+      cat1_discount_rate, cat2_discount_rate, cat3_discount_rate
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const res = stmt.run(
     data.accounting_system_id.trim(),
     data.name.trim(),
-    data.email.trim(),
+    data.email ? data.email.trim() : '',
     data.phone ? data.phone.trim() : null,
     Number(data.default_discount_rate) || 0.07,
-    Number(data.default_grace_days) || 30
+    Number(data.default_grace_days) || 30,
+    data.cat1_discount_rate !== undefined ? Number(data.cat1_discount_rate) : 0.00,
+    data.cat2_discount_rate !== undefined ? Number(data.cat2_discount_rate) : 0.03,
+    data.cat3_discount_rate !== undefined ? Number(data.cat3_discount_rate) : 0.07
   );
   return getCustomerById(res.lastInsertRowid);
 }
@@ -223,15 +286,21 @@ function updateCustomer(id, data) {
       email = ?,
       phone = ?,
       default_discount_rate = ?,
-      default_grace_days = ?
+      default_grace_days = ?,
+      cat1_discount_rate = ?,
+      cat2_discount_rate = ?,
+      cat3_discount_rate = ?
     WHERE id = ?
   `).run(
     data.accounting_system_id.trim(),
     data.name.trim(),
-    data.email.trim(),
+    data.email ? data.email.trim() : '',
     data.phone ? data.phone.trim() : null,
     Number(data.default_discount_rate) || 0.07,
     Number(data.default_grace_days) || 30,
+    data.cat1_discount_rate !== undefined ? Number(data.cat1_discount_rate) : 0.00,
+    data.cat2_discount_rate !== undefined ? Number(data.cat2_discount_rate) : 0.03,
+    data.cat3_discount_rate !== undefined ? Number(data.cat3_discount_rate) : 0.07,
     id
   );
   return getCustomerById(id);
@@ -269,7 +338,7 @@ function getCustomerStatement(customerId) {
     adjustments = db.prepare(`SELECT * FROM adjustments WHERE invoice_id IN (${placeholders}) ORDER BY adjustment_date ASC, id ASC`).all(...invoiceIds);
   }
 
-  const ledger = calculateCustomerLedger(invoices, payments, adjustments);
+  const ledger = calculateCustomerLedger(invoices, payments, adjustments, customer);
 
   return {
     customer,
@@ -387,6 +456,42 @@ function revokeInvoiceException(id) {
   `).run(id);
 
   return db.prepare('SELECT * FROM invoices WHERE id = ?').get(id);
+}
+
+function updateInvoiceCategory(id, newCategoryId, customRate = null) {
+  const db = getDb();
+  const invoice = db.prepare('SELECT * FROM invoices WHERE id = ?').get(id);
+  if (!invoice) throw new Error('الفاتورة غير موجودة.');
+
+  const customer = getCustomerById(invoice.customer_id);
+  const catId = parseInt(newCategoryId, 10);
+
+  let catName = '3. عام (خاضع للخصم)';
+  let newRate = customer.cat3_discount_rate !== undefined ? customer.cat3_discount_rate : (customer.default_discount_rate || 0.07);
+
+  if (catId === 1) {
+    catName = '1. لا تشمل الخصم';
+    newRate = customer.cat1_discount_rate !== undefined ? customer.cat1_discount_rate : 0.00;
+  } else if (catId === 2) {
+    catName = '2. مخفض';
+    newRate = customer.cat2_discount_rate !== undefined ? customer.cat2_discount_rate : 0.03;
+  }
+
+  if (customRate !== null && customRate !== undefined && !isNaN(customRate)) {
+    newRate = Number(customRate);
+  }
+
+  db.prepare(`
+    UPDATE invoices SET
+      category_id = ?,
+      category_name = ?,
+      discount_rate = ?,
+      is_category_manual = 1,
+      is_corrected = 1
+    WHERE id = ?
+  `).run(catId, catName, newRate, id);
+
+  return getCustomerStatement(customer.id);
 }
 
 function createPayment(data) {
@@ -610,6 +715,211 @@ function setSetting(key, value) {
   `).run(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
 }
 
+// -------------------------------------------------------------
+// InfoSoft ERP Synchronization
+// -------------------------------------------------------------
+
+const { infosoftService } = require('../services/infosoftBridge');
+
+async function syncCustomerFromInfoSoft(accountingId, customConfig = {}) {
+  const db = getDb();
+  const trimmedId = String(accountingId).trim();
+
+  // 1. Fetch live statement from InfoSoft with 3-category classification & cross-year return linking
+  const statement = await infosoftService.generateCustomerStatement(trimmedId, customConfig);
+  const infoCust = statement.customer;
+
+  // 2. Check if customer already exists in local DB
+  let localCust = db.prepare('SELECT * FROM customers WHERE accounting_system_id = ?').get(trimmedId);
+
+  const effectiveEmail = customConfig.email || (localCust && localCust.email) || infoCust.email || '';
+  const effectiveCat1Rate = customConfig.cat1_discount_rate !== undefined 
+    ? Number(customConfig.cat1_discount_rate) 
+    : (localCust ? localCust.cat1_discount_rate : 0.00);
+  const effectiveCat2Rate = customConfig.cat2_discount_rate !== undefined 
+    ? Number(customConfig.cat2_discount_rate) 
+    : (localCust ? localCust.cat2_discount_rate : 0.03);
+  const effectiveCat3Rate = customConfig.cat3_discount_rate !== undefined 
+    ? Number(customConfig.cat3_discount_rate) 
+    : (localCust ? localCust.cat3_discount_rate : 0.07);
+  const effectiveGraceDays = customConfig.grace_days !== undefined 
+    ? Number(customConfig.grace_days) 
+    : (localCust ? localCust.default_grace_days : 30);
+
+  let customerId;
+  if (localCust) {
+    customerId = localCust.id;
+    db.prepare(`
+      UPDATE customers SET
+        name = ?,
+        email = ?,
+        phone = ?,
+        default_discount_rate = ?,
+        default_grace_days = ?,
+        cat1_discount_rate = ?,
+        cat2_discount_rate = ?,
+        cat3_discount_rate = ?
+      WHERE id = ?
+    `).run(
+      infoCust.name,
+      effectiveEmail,
+      infoCust.phone || null,
+      effectiveCat3Rate,
+      effectiveGraceDays,
+      effectiveCat1Rate,
+      effectiveCat2Rate,
+      effectiveCat3Rate,
+      customerId
+    );
+  } else {
+    const res = db.prepare(`
+      INSERT INTO customers (
+        accounting_system_id, name, email, phone, default_discount_rate, default_grace_days,
+        cat1_discount_rate, cat2_discount_rate, cat3_discount_rate
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      trimmedId,
+      infoCust.name,
+      effectiveEmail,
+      infoCust.phone || null,
+      effectiveCat3Rate,
+      effectiveGraceDays,
+      effectiveCat1Rate,
+      effectiveCat2Rate,
+      effectiveCat3Rate
+    );
+    customerId = res.lastInsertRowid;
+  }
+
+  // 3. Preserve any manual category customizations or exceptions before refreshing
+  const manualOverrides = new Map(); // accounting_trans_id -> { category_id, category_name, discount_rate, is_category_manual, is_exception_granted, exception_reason }
+  const existingInvs = db.prepare('SELECT id, accounting_trans_id, category_id, category_name, discount_rate, is_category_manual, is_exception_granted, exception_reason FROM invoices WHERE customer_id = ?').all(customerId);
+  for (const inv of existingInvs) {
+    if (inv.is_category_manual || inv.is_exception_granted) {
+      manualOverrides.set(String(inv.accounting_trans_id), {
+        category_id: inv.category_id,
+        category_name: inv.category_name,
+        discount_rate: inv.discount_rate,
+        is_category_manual: inv.is_category_manual,
+        is_exception_granted: inv.is_exception_granted,
+        exception_reason: inv.exception_reason
+      });
+    }
+  }
+
+  // Clear existing local transactions for this customer to avoid duplication
+  if (existingInvs.length > 0) {
+    const invIds = existingInvs.map(i => i.id);
+    const ph = invIds.map(() => '?').join(',');
+    db.prepare(`DELETE FROM adjustments WHERE invoice_id IN (${ph})`).run(...invIds);
+  }
+  db.prepare('DELETE FROM payments WHERE customer_id = ?').run(customerId);
+  db.prepare('DELETE FROM invoices WHERE customer_id = ?').run(customerId);
+
+  // 4. Insert Invoices with category-specific discount rate (preserving user overrides)
+  const invoiceIdMap = new Map(); // accounting_trans_id -> sqlite invoice_id
+
+  const insertInvStmt = db.prepare(`
+    INSERT INTO invoices (
+      customer_id, accounting_trans_id, invoice_date, total_amount, discount_rate, grace_days,
+      category_id, category_name, description, is_category_manual, is_exception_granted, exception_reason
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const inv of statement.invoices) {
+    const amount = Number(inv.net_amount_before_vat) || 0;
+    if (amount <= 0) continue;
+
+    const manual = manualOverrides.get(String(inv.invoice_ref));
+    let catId = manual ? manual.category_id : inv.category_id;
+    let catName = manual ? manual.category_name : inv.category_name;
+    let rate = effectiveCat3Rate;
+    let isManual = 0;
+    let isException = 0;
+    let excReason = null;
+
+    if (manual) {
+      rate = manual.discount_rate;
+      isManual = manual.is_category_manual ? 1 : 0;
+      isException = manual.is_exception_granted ? 1 : 0;
+      excReason = manual.exception_reason || null;
+    } else {
+      if (catId === 1) rate = effectiveCat1Rate;
+      else if (catId === 2) rate = effectiveCat2Rate;
+    }
+
+    const res = insertInvStmt.run(
+      customerId,
+      String(inv.invoice_ref),
+      inv.invoice_date_formatted || inv.invdate,
+      amount,
+      rate,
+      effectiveGraceDays,
+      catId,
+      catName,
+      inv.description || '',
+      isManual,
+      isException,
+      excReason
+    );
+    invoiceIdMap.set(String(inv.invoice_ref), res.lastInsertRowid);
+  }
+
+  // 5. Insert Returns / Adjustments
+  const insertAdjStmt = db.prepare(`
+    INSERT INTO adjustments (
+      invoice_id, accounting_trans_id, adjustment_date, amount, type,
+      category_id, category_name, linked_invoice_ref, linked_invoice_year, linked_invoice_desc, notes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  // Default fallback invoice ID if original invoice not in SQLite
+  const fallbackInvId = invoiceIdMap.values().next().value || null;
+
+  for (const ret of statement.returns) {
+    const amount = Number(ret.return_net_before_vat) || 0;
+    if (amount <= 0) continue;
+
+    const targetInvId = (ret.linked_invoice_ref && invoiceIdMap.get(String(ret.linked_invoice_ref))) || fallbackInvId;
+    if (!targetInvId) continue; // no invoice to attach to
+
+    insertAdjStmt.run(
+      targetInvId,
+      String(ret.return_ref),
+      ret.return_date_formatted || ret.return_date,
+      amount,
+      'RETURN',
+      ret.category_id,
+      ret.category_name,
+      ret.linked_invoice_ref ? String(ret.linked_invoice_ref) : null,
+      ret.linked_invoice_year || null,
+      ret.linked_invoice_desc || null,
+      ret.return_desc || ''
+    );
+  }
+
+  // 6. Insert Payments
+  const insertPayStmt = db.prepare(`
+    INSERT INTO payments (
+      customer_id, accounting_trans_id, payment_date, amount
+    ) VALUES (?, ?, ?, ?)
+  `);
+
+  for (const p of statement.payments) {
+    const amount = Number(p.amount) || 0;
+    if (amount <= 0) continue;
+
+    insertPayStmt.run(
+      customerId,
+      String(p.payment_ref),
+      p.payment_date_formatted || p.payment_date,
+      amount
+    );
+  }
+
+  return getCustomerStatement(customerId);
+}
+
 module.exports = {
   openDatabase,
   getDb,
@@ -624,6 +934,7 @@ module.exports = {
   updateInvoice,
   grantInvoiceException,
   revokeInvoiceException,
+  updateInvoiceCategory,
   createPayment,
   updatePayment,
   createAdjustment,
@@ -636,5 +947,6 @@ module.exports = {
   markEmailSent,
   markEmailFailed,
   getSetting,
-  setSetting
+  setSetting,
+  syncCustomerFromInfoSoft
 };

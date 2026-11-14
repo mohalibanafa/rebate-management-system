@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const dbModule = require('../src/db/database');
+const { infosoftService } = require('../src/services/infosoftBridge');
 const { generateStatementHtml } = require('../src/reports/statementPdfTemplate');
 const { 
   startEmailWorker, 
@@ -166,6 +167,9 @@ function registerIpcHandlers() {
   // Transactions
   ipcMain.handle('invoice:create', async (e, data) => dbModule.createInvoice(data));
   ipcMain.handle('invoice:update', async (e, { id, data }) => dbModule.updateInvoice(id, data));
+  ipcMain.handle('invoice:category-update', async (e, { invoiceId, categoryId, customRate }) => {
+    return dbModule.updateInvoiceCategory(invoiceId, categoryId, customRate);
+  });
   ipcMain.handle('invoice:exception-grant', async (e, { id, reason }) => dbModule.grantInvoiceException(id, reason));
   ipcMain.handle('invoice:exception-revoke', async (e, id) => dbModule.revokeInvoiceException(id));
 
@@ -174,6 +178,31 @@ function registerIpcHandlers() {
 
   ipcMain.handle('adjustment:create', async (e, data) => dbModule.createAdjustment(data));
   ipcMain.handle('adjustment:update', async (e, { id, data }) => dbModule.updateAdjustment(id, data));
+
+  // InfoSoft SQL Server ERP Handlers
+  ipcMain.handle('infosoft:status', async () => infosoftService.testConnection());
+  ipcMain.handle('infosoft:customers', async () => infosoftService.getAllCustomers());
+  ipcMain.handle('infosoft:statement', async (e, { customerId, config }) => {
+    return infosoftService.generateCustomerStatement(customerId, config);
+  });
+  ipcMain.handle('infosoft:sync-customer', async (e, { customerId, config }) => {
+    return dbModule.syncCustomerFromInfoSoft(customerId, config);
+  });
+  ipcMain.handle('infosoft:config', async (e, newConfig) => {
+    if (newConfig) {
+      if (newConfig.server) infosoftService.server = newConfig.server;
+      if (newConfig.currentYearDb) infosoftService.currentYearDb = newConfig.currentYearDb;
+      if (newConfig.prevYearDb) infosoftService.prevYearDb = newConfig.prevYearDb;
+      if (newConfig.company !== undefined) infosoftService.company = newConfig.company;
+      dbModule.setSetting('infosoft_config', newConfig);
+    }
+    return {
+      server: infosoftService.server,
+      currentYearDb: infosoftService.currentYearDb,
+      prevYearDb: infosoftService.prevYearDb,
+      company: infosoftService.company
+    };
+  });
 
   // Settings
   ipcMain.handle('settings:get', async () => {

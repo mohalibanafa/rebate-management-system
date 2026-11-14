@@ -165,4 +165,45 @@ describe('Database Layer & Financial Constraints', () => {
     assert.strictEqual(updated.is_corrected, 1);
     assert.strictEqual(updated.accounting_trans_id, 'INV-400-MOD');
   });
+
+  it('Allows manually changing invoice discount category and updates rates and statement', () => {
+    const customer = dbModule.createCustomer({
+      accounting_system_id: 'CUST-500',
+      name: 'مؤسسة التميز',
+      cat1_discount_rate: 0.00,
+      cat2_discount_rate: 0.03,
+      cat3_discount_rate: 0.07
+    });
+
+    const invoice = dbModule.createInvoice({
+      customer_id: customer.id,
+      accounting_trans_id: 'INV-500',
+      invoice_date: '2026-01-01',
+      total_amount: 10000,
+      discount_rate: 0.07,
+      grace_days: 30
+    });
+
+    // Pay on time
+    dbModule.createPayment({
+      customer_id: customer.id,
+      accounting_trans_id: 'REC-500',
+      payment_date: '2026-01-10',
+      amount: 10000
+    });
+
+    let st = dbModule.getCustomerStatement(customer.id);
+    assert.strictEqual(st.totalRebateEarned, 700); // 7% of 10,000
+
+    // User changes category manually to Category 2 (مخفض: 3%)
+    const updatedSt2 = dbModule.updateInvoiceCategory(invoice.id, 2);
+    assert.strictEqual(updatedSt2.totalRebateEarned, 300); // 3% of 10,000 = 300
+    assert.strictEqual(updatedSt2.breakdown[0].category_id, 2);
+    assert.strictEqual(updatedSt2.breakdown[0].is_category_manual, 1);
+
+    // User changes category manually to Category 1 (لا تشمل: 0%)
+    const updatedSt1 = dbModule.updateInvoiceCategory(invoice.id, 1);
+    assert.strictEqual(updatedSt1.totalRebateEarned, 0); // 0%
+    assert.strictEqual(updatedSt1.breakdown[0].category_id, 1);
+  });
 });

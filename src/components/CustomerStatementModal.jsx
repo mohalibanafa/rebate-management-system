@@ -12,6 +12,15 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
   const [exceptionReason, setExceptionReason] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
 
+  // Editable customer configuration state
+  const [custEmail, setCustEmail] = useState('');
+  const [rate1, setRate1] = useState(0);
+  const [rate2, setRate2] = useState(3);
+  const [rate3, setRate3] = useState(7);
+  const [graceDays, setGraceDays] = useState(30);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [updatingCatInvId, setUpdatingCatInvId] = useState(null);
+
   useEffect(() => {
     if (isOpen && customerId) {
       loadStatement();
@@ -24,10 +33,61 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
       setError(null);
       const data = await window.api.getCustomerStatement(customerId);
       setStatement(data);
+      if (data?.customer) {
+        setCustEmail(data.customer.email || '');
+        setRate1(data.customer.cat1_discount_rate !== undefined ? data.customer.cat1_discount_rate * 100 : 0);
+        setRate2(data.customer.cat2_discount_rate !== undefined ? data.customer.cat2_discount_rate * 100 : 3);
+        setRate3(data.customer.cat3_discount_rate !== undefined ? data.customer.cat3_discount_rate * 100 : (data.customer.default_discount_rate * 100 || 7));
+        setGraceDays(data.customer.default_grace_days || 30);
+      }
     } catch (err) {
       setError(err.message || 'فشل في تحميل كشف الحساب.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveRates = async () => {
+    try {
+      if (!statement?.customer?.id) return;
+      await window.api.updateCustomer(statement.customer.id, {
+        name: statement.customer.name,
+        accounting_system_id: statement.customer.accounting_system_id,
+        email: custEmail.trim(),
+        phone: statement.customer.phone,
+        default_discount_rate: parseFloat(rate3) / 100,
+        default_grace_days: parseInt(graceDays, 10),
+        cat1_discount_rate: parseFloat(rate1) / 100,
+        cat2_discount_rate: parseFloat(rate2) / 100,
+        cat3_discount_rate: parseFloat(rate3) / 100
+      });
+      await loadStatement();
+      if (onRefreshRequired) onRefreshRequired();
+      alert('تم حفظ وتحديث بيانات ونسب العميل بنجاح.');
+    } catch (err) {
+      alert('خطأ أثناء الحفظ: ' + err.message);
+    }
+  };
+
+  const handleSyncFromInfosoft = async () => {
+    try {
+      setIsSyncing(true);
+      const accId = statement?.customer?.accounting_system_id;
+      if (!accId) return;
+      await window.api.infosoft.syncCustomer(accId, {
+        email: custEmail.trim(),
+        cat1_discount_rate: parseFloat(rate1) / 100,
+        cat2_discount_rate: parseFloat(rate2) / 100,
+        cat3_discount_rate: parseFloat(rate3) / 100,
+        grace_days: parseInt(graceDays, 10)
+      });
+      await loadStatement();
+      if (onRefreshRequired) onRefreshRequired();
+      alert(`تمت مزامنة بيانات العميل [${accId}] من قاعدة بيانات إنفوسوفت بنجاح!`);
+    } catch (err) {
+      alert('فشل في مزامنة إنفوسوفت: ' + err.message);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -54,6 +114,19 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
       if (onRefreshRequired) onRefreshRequired();
     } catch (err) {
       alert('خطأ: ' + err.message);
+    }
+  };
+
+  const handleCategoryChange = async (invId, newCatId) => {
+    try {
+      setUpdatingCatInvId(invId);
+      const updatedStatement = await window.api.updateInvoiceCategory(invId, parseInt(newCatId, 10));
+      setStatement(updatedStatement);
+      if (onRefreshRequired) onRefreshRequired();
+    } catch (err) {
+      alert('خطأ أثناء تغيير فئة الفاتورة: ' + err.message);
+    } finally {
+      setUpdatingCatInvId(null);
     }
   };
 
@@ -196,6 +269,147 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                 </div>
               </div>
 
+              {/* 3 Categories Breakdown Summary Table (InfoSoft ERP Rules) */}
+              {statement.categoriesSummary && statement.categoriesSummary.length > 0 && (
+                <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-4 shadow-sm">
+                  <div className="flex items-center justify-between mb-3 border-b border-slate-200 pb-2.5">
+                    <div>
+                      <h3 className="font-bold text-spruce-900 text-xs flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-gold-bronze" />
+                        جدول فئات المبيعات الثلاث وحساب الخصم المكتسب (قاعدة بيانات إنفوسوفت)
+                      </h3>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        تم الفرز آلياً بناءً على بيان الفاتورة (مكان اسم العميل custnm)، مع خصم المرتجعات من فئاتها المرتبطة (شاملة مرتجعات السنة السابقة).
+                      </p>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs">
+                      <thead>
+                        <tr className="bg-slate-100/90 text-spruce-900 font-bold border-b border-slate-200 text-[11px]">
+                          <th className="py-2.5 px-3">فئة الخصم</th>
+                          <th className="py-2.5 px-3">عدد الفواتير</th>
+                          <th className="py-2.5 px-3">إجمالي المبيعات</th>
+                          <th className="py-2.5 px-3">عدد المرتجعات</th>
+                          <th className="py-2.5 px-3">إجمالي المرتجعات</th>
+                          <th className="py-2.5 px-3">صافي المبيعات</th>
+                          <th className="py-2.5 px-3">معدل الخصم المعتمد</th>
+                          <th className="py-2.5 px-3 text-gold-bronze font-black">الخصم المكتسب المستحق</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {statement.categoriesSummary.map(cat => (
+                          <tr key={cat.id} className="hover:bg-white transition-colors">
+                            <td className="py-2.5 px-3 font-bold flex items-center gap-2">
+                              <span className={`w-2.5 h-2.5 rounded-full ${cat.id === 1 ? 'bg-rose-500' : (cat.id === 2 ? 'bg-amber-500' : 'bg-emerald-500')}`}></span>
+                              <span>{cat.name}</span>
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-700 font-medium">{cat.invoiceCount}</td>
+                            <td className="py-2.5 px-3 font-semibold text-slate-900">{(cat.salesBeforeVat || cat.gross || 0).toLocaleString()} ر.س</td>
+                            <td className="py-2.5 px-3 text-rose-700 font-medium">{cat.returnCount}</td>
+                            <td className="py-2.5 px-3 text-rose-700 font-semibold">-{(cat.returnsBeforeVat || cat.returns || 0).toLocaleString()} ر.س</td>
+                            <td className="py-2.5 px-3 font-bold text-spruce-900">{(cat.netSalesBeforeVat || cat.net || 0).toLocaleString()} ر.س</td>
+                            <td className="py-2.5 px-3 font-mono font-bold text-slate-700">
+                              {((cat.discountRate !== undefined ? cat.discountRate : (cat.id === 1 ? rate1/100 : (cat.id === 2 ? rate2/100 : rate3/100))) * 100).toFixed(1)}%
+                            </td>
+                            <td className="py-2.5 px-3 font-black text-gold-bronze">
+                              {(cat.earnedDiscount || cat.earned || 0).toLocaleString()} ر.س
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Customer Manual Settings: Email & Category Discount Rates */}
+              <div className="bg-sand-light/50 border border-sand-warm rounded-xl p-4 text-xs space-y-3">
+                <div className="flex items-center justify-between border-b border-sand-warm/60 pb-2">
+                  <span className="font-bold text-spruce-900 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-teal-forest" />
+                    بيانات العميل اليدوية ومعدلات الخصم المخصصة لكل فئة:
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    يمكنك تعديل البريد ومعدلات الخصم يدوياً لكل فئة وحفظها مباشرة
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
+                  <div className="md:col-span-2">
+                    <label className="block text-[11px] text-slate-600 mb-1 font-bold">البريد الإلكتروني للعميل:</label>
+                    <input 
+                      type="email" 
+                      value={custEmail} 
+                      onChange={e => setCustEmail(e.target.value)} 
+                      placeholder="name@company.com" 
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono text-slate-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-rose-700 mb-1 font-bold">خصم فئة 1 (لا تشمل):</label>
+                    <div className="flex items-center gap-1">
+                      <input 
+                        type="number" 
+                        step="0.1" 
+                        value={rate1} 
+                        onChange={e => setRate1(e.target.value)} 
+                        className="w-full px-2 py-1.5 bg-white border border-rose-300 rounded-lg text-xs font-mono text-center font-bold"
+                      />
+                      <span className="text-slate-500 font-bold">%</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-amber-800 mb-1 font-bold">خصم فئة 2 (مخفض):</label>
+                    <div className="flex items-center gap-1">
+                      <input 
+                        type="number" 
+                        step="0.1" 
+                        value={rate2} 
+                        onChange={e => setRate2(e.target.value)} 
+                        className="w-full px-2 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-mono text-center font-bold"
+                      />
+                      <span className="text-slate-500 font-bold">%</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] text-emerald-800 mb-1 font-bold">خصم فئة 3 (عام):</label>
+                    <div className="flex items-center gap-1">
+                      <input 
+                        type="number" 
+                        step="0.1" 
+                        value={rate3} 
+                        onChange={e => setRate3(e.target.value)} 
+                        className="w-full px-2 py-1.5 bg-white border border-emerald-300 rounded-lg text-xs font-mono text-center font-bold"
+                      />
+                      <span className="text-slate-500 font-bold">%</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={handleSaveRates} 
+                      disabled={isSyncing} 
+                      className="flex-1 py-1.5 bg-spruce-900 hover:bg-spruce-800 text-sand-warm rounded-lg font-bold text-xs shadow-sm transition"
+                    >
+                      حفظ النسب
+                    </button>
+                    <button 
+                      onClick={handleSyncFromInfosoft} 
+                      disabled={isSyncing} 
+                      className="flex-1 py-1.5 bg-teal-forest hover:bg-teal-forest-hover text-sand-warm rounded-lg font-bold text-xs shadow-sm transition flex items-center justify-center gap-1"
+                      title="جلب وتحديث الفواتير والمرتجعات مباشرة من قاعدة بيانات إنفوسوفت"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-gold-bronze" />
+                      {isSyncing ? 'جاري...' : 'مزامنة'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* Invoices & Settlements Tree Table */}
               <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                 <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
@@ -214,6 +428,8 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                       <tr>
                         <th className="py-2.5 px-3">رقم الفاتورة</th>
                         <th className="py-2.5 px-3">التاريخ</th>
+                        <th className="py-2.5 px-3">بيان الفاتورة (custnm)</th>
+                        <th className="py-2.5 px-3">فئة الخصم</th>
                         <th className="py-2.5 px-3">الإجمالي (أصل)</th>
                         <th className="py-2.5 px-3">المرتجع</th>
                         <th className="py-2.5 px-3">الصافي</th>
@@ -228,7 +444,7 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                     <tbody className="divide-y divide-slate-100">
                       {statement.breakdown.length === 0 ? (
                         <tr>
-                          <td colSpan="11" className="py-8 text-center text-slate-400">
+                          <td colSpan="13" className="py-8 text-center text-slate-400">
                             لا توجد فواتير مسجلة لهذا العميل حتى الآن.
                           </td>
                         </tr>
@@ -247,7 +463,36 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                                   )}
                                 </div>
                               </td>
-                              <td className="py-3 px-3 text-slate-600">{inv.invoice_date}</td>
+                              <td className="py-3 px-3 text-slate-600 whitespace-nowrap">{inv.invoice_date}</td>
+                              <td className="py-3 px-3 text-slate-700 max-w-xs truncate" title={inv.description}>
+                                {inv.description || '-'}
+                              </td>
+                              <td className="py-2 px-3 whitespace-nowrap">
+                                <div className="flex flex-col gap-0.5">
+                                  <select
+                                    value={inv.category_id || 3}
+                                    onChange={(e) => handleCategoryChange(inv.id, e.target.value)}
+                                    disabled={isReadOnly || updatingCatInvId === inv.id}
+                                    className={`text-[10px] font-bold py-1 px-1.5 rounded-lg border cursor-pointer focus:outline-none transition shadow-xs ${
+                                      inv.category_id === 1 
+                                        ? 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100' 
+                                        : inv.category_id === 2 
+                                          ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100' 
+                                          : 'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
+                                    }`}
+                                    title="تغيير فئة خصم الفاتورة يدوياً"
+                                  >
+                                    <option value={1}>1. لا تشمل (0%)</option>
+                                    <option value={2}>2. مخفض ({rate2}%)</option>
+                                    <option value={3}>3. عام ({rate3}%)</option>
+                                  </select>
+                                  {inv.is_category_manual === 1 && (
+                                    <span className="text-[9px] text-teal-forest font-black inline-flex items-center gap-0.5" title="تم تحديد الفئة يدوياً من قبل المستخدم">
+                                      ★ يدوي
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
                               <td className="py-3 px-3 font-semibold text-slate-800">{inv.gross_amount.toLocaleString()} ر.س</td>
                               <td className="py-3 px-3 text-rose-600">
                                 {inv.total_returns > 0 ? `-${inv.total_returns.toLocaleString()} ر.س` : '-'}
@@ -311,7 +556,7 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                             {/* Exception Reason Banner */}
                             {inv.is_exception_granted === 1 && (
                               <tr className="bg-sand-light/50">
-                                <td colSpan="11" className="py-1 px-4 text-xs text-spruce-900 border-b border-sand-warm">
+                                <td colSpan="13" className="py-1 px-4 text-xs text-spruce-900 border-b border-sand-warm">
                                   <span className="font-bold text-gold-bronze">ملاحظة الاستثناء الإداري:</span> تم اعتماد الخصم استثنائياً - التبرير: "{inv.exception_reason}"
                                 </td>
                               </tr>
@@ -320,16 +565,24 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                             {/* Nested Returns Rows */}
                             {inv.returns.map((ret) => (
                               <tr key={`ret-${ret.id}`} className="bg-rose-50/40 text-rose-800 text-[11px]">
-                                <td className="py-1.5 px-3 pr-8" colSpan="3">
-                                  <div className="flex items-center gap-1.5">
+                                <td className="py-1.5 px-3 pr-8" colSpan="5">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
                                     <CornerDownLeft className="w-3.5 h-3.5 text-rose-500" />
-                                    <span>مرتجع/تالف بسند <strong>{ret.accounting_trans_id}</strong> بتاريخ {ret.adjustment_date}</span>
+                                    <span>مرتجع بسند <strong>{ret.accounting_trans_id}</strong> بتاريخ {ret.adjustment_date}</span>
+                                    {ret.linked_invoice_year === '2025' && (
+                                      <span className="px-1.5 py-0.2 bg-purple-100 text-purple-800 border border-purple-200 rounded font-bold text-[10px]">
+                                        مرتجع من السنة السابقة (2025)
+                                      </span>
+                                    )}
+                                    <span className="text-[10px] px-1.5 py-0.2 bg-white/80 border border-rose-200 rounded font-semibold text-rose-900">
+                                      فئة الخصم: {ret.category_name || (ret.category_id === 1 ? 'لا تشمل' : (ret.category_id === 2 ? 'مخفض' : 'عام'))}
+                                    </span>
                                     {ret.notes && <span className="text-slate-500">({ret.notes})</span>}
                                   </div>
                                 </td>
-                                <td className="py-1.5 px-3 font-bold">-{ret.amount.toLocaleString()} ر.س</td>
+                                <td className="py-1.5 px-3 font-bold text-rose-700">-{ret.amount.toLocaleString()} ر.س</td>
                                 <td colSpan="7" className="py-1.5 px-3 text-slate-500 text-[10px]">
-                                  (تم خفض وعاء الفاتورة وصافيها تلقائياً)
+                                  (محسوم من فئة الفاتورة الأصلية المقابلة)
                                 </td>
                               </tr>
                             ))}
@@ -337,7 +590,7 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                             {/* Nested Settlement / Payment Rows */}
                             {inv.settlements.map((settle, sIdx) => (
                               <tr key={`settle-${sIdx}`} className="bg-teal-forest/5 text-slate-700 text-[11px]">
-                                <td className="py-1.5 px-3 pr-8" colSpan="4">
+                                <td className="py-1.5 px-3 pr-8" colSpan="6">
                                   <div className="flex items-center gap-1.5">
                                     <CornerDownLeft className="w-3.5 h-3.5 text-teal-forest" />
                                     <span>

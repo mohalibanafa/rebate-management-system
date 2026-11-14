@@ -25,7 +25,7 @@ function parseDateToDays(dateStr) {
  * @param {Array} adjustments - List of credit notes/returns/damaged goods
  * @returns {Object} Comprehensive calculation result
  */
-function calculateCustomerLedger(invoices = [], payments = [], adjustments = []) {
+function calculateCustomerLedger(invoices = [], payments = [], adjustments = [], customer = {}) {
   // 1. Sort invoices chronologically (by invoice_date, then id)
   const sortedInvoices = [...invoices].sort((a, b) => {
     const diff = parseDateToDays(a.invoice_date) - parseDateToDays(b.invoice_date);
@@ -44,6 +44,10 @@ function calculateCustomerLedger(invoices = [], payments = [], adjustments = [])
       gross_amount: grossAmount,
       discount_rate: Number(inv.discount_rate) || 0,
       grace_days: Number(inv.grace_days) || 0,
+      category_id: inv.category_id || 3,
+      category_name: inv.category_name || '3. عام (خاضع للخصم)',
+      description: inv.description || '',
+      is_category_manual: Number(inv.is_category_manual) === 1 ? 1 : 0,
       is_exception_granted: Number(inv.is_exception_granted) === 1 ? 1 : 0,
       exception_reason: inv.exception_reason || null,
       is_corrected: Number(inv.is_corrected) === 1 ? 1 : 0,
@@ -75,6 +79,11 @@ function calculateCustomerLedger(invoices = [], payments = [], adjustments = [])
         adjustment_date: adj.adjustment_date,
         amount: adjAmount,
         type: adj.type || 'RETURN',
+        category_id: adj.category_id || inv.category_id || 3,
+        category_name: adj.category_name || inv.category_name || '3. عام (خاضع للخصم)',
+        linked_invoice_ref: adj.linked_invoice_ref || inv.accounting_trans_id,
+        linked_invoice_year: adj.linked_invoice_year || null,
+        linked_invoice_desc: adj.linked_invoice_desc || null,
         notes: adj.notes || '',
         is_corrected: Number(adj.is_corrected) === 1 ? 1 : 0
       });
@@ -200,6 +209,28 @@ function calculateCustomerLedger(invoices = [], payments = [], adjustments = [])
   // Net customer balance: positive = customer owes company, negative = company owes customer (credit)
   const customerBalance = Math.round((totalRemainingUnpaid - unallocatedCash) * 100) / 100;
 
+  // 7. Categories Summary Breakdown (1: لا تشمل الخصم, 2: مخفض, 3: عام)
+  const cat1Rate = customer?.cat1_discount_rate !== undefined ? customer.cat1_discount_rate : 0.00;
+  const cat2Rate = customer?.cat2_discount_rate !== undefined ? customer.cat2_discount_rate : 0.03;
+  const cat3Rate = customer?.cat3_discount_rate !== undefined ? customer.cat3_discount_rate : (customer?.default_discount_rate || 0.07);
+
+  const categoriesMap = {
+    1: { id: 1, key: 'NO_DISCOUNT', name: '1. لا تشمل الخصم', discountRate: cat1Rate, invoiceCount: 0, salesBeforeVat: 0, returnCount: 0, returnsBeforeVat: 0, netSalesBeforeVat: 0, earnedDiscount: 0 },
+    2: { id: 2, key: 'REDUCED', name: '2. مخفض', discountRate: cat2Rate, invoiceCount: 0, salesBeforeVat: 0, returnCount: 0, returnsBeforeVat: 0, netSalesBeforeVat: 0, earnedDiscount: 0 },
+    3: { id: 3, key: 'GENERAL', name: '3. عام (خاضع للخصم)', discountRate: cat3Rate, invoiceCount: 0, salesBeforeVat: 0, returnCount: 0, returnsBeforeVat: 0, netSalesBeforeVat: 0, earnedDiscount: 0 }
+  };
+
+  for (const inv of invoiceMap.values()) {
+    const cId = inv.category_id === 1 ? 1 : (inv.category_id === 2 ? 2 : 3);
+    const cat = categoriesMap[cId];
+    cat.invoiceCount++;
+    cat.salesBeforeVat = Math.round((cat.salesBeforeVat + inv.gross_amount) * 100) / 100;
+    cat.returnCount += inv.returns.length;
+    cat.returnsBeforeVat = Math.round((cat.returnsBeforeVat + inv.total_returns) * 100) / 100;
+    cat.netSalesBeforeVat = Math.round((cat.netSalesBeforeVat + inv.net_total) * 100) / 100;
+    cat.earnedDiscount = Math.round((cat.earnedDiscount + inv.earned_discount) * 100) / 100;
+  }
+
   return {
     breakdown,
     totalGrossSales,
@@ -211,6 +242,7 @@ function calculateCustomerLedger(invoices = [], payments = [], adjustments = [])
     totalRemainingUnpaid,
     unallocatedCash,
     customerBalance,
+    categoriesSummary: Object.values(categoriesMap),
     cashPool
   };
 }

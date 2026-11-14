@@ -21,11 +21,76 @@ function formatDate(dateStr) {
  * @returns {string} Complete HTML5 document string
  */
 function generateStatementHtml(statement, options = {}) {
-  const { customer, breakdown = [], totalGrossSales = 0, totalReturns = 0, totalNetSales = 0, totalPayments = 0, totalRebateEarned = 0, totalRemainingUnpaid = 0, unallocatedCash = 0, customerBalance = 0, cashPool = [] } = statement;
+  const { customer, breakdown = [], totalGrossSales = 0, totalReturns = 0, totalNetSales = 0, totalPayments = 0, totalRebateEarned = 0, totalRemainingUnpaid = 0, unallocatedCash = 0, customerBalance = 0, cashPool = [], categoriesSummary = [] } = statement;
   const companyName = options.company_name || 'مؤسسة الحلول التجارية المتقدمة';
   const now = new Date();
   const currentDate = now.toISOString().slice(0, 10);
   const printTime = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+  // Render 3 Categories Summary Table (InfoSoft ERP Rules)
+  let categoriesSummaryHtml = '';
+  if (categoriesSummary && categoriesSummary.length > 0) {
+    const catRows = categoriesSummary.map(cat => {
+      let badgeColor = '#64748B';
+      if (cat.id === 1) badgeColor = '#DC2626';
+      else if (cat.id === 2) badgeColor = '#D97706';
+      else if (cat.id === 3) badgeColor = '#059669';
+
+      return `
+        <tr>
+          <td style="font-weight: 800; color: #0E2F33;">
+            <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${badgeColor}; margin-left:6px; vertical-align:middle;"></span>
+            ${cat.name}
+          </td>
+          <td class="text-center">${cat.invoiceCount}</td>
+          <td class="text-left font-bold">${formatNumber(cat.salesBeforeVat || cat.gross || 0)} ر.س</td>
+          <td class="text-center ${cat.returnCount > 0 ? 'text-danger font-bold' : ''}">${cat.returnCount}</td>
+          <td class="text-left ${cat.returnsBeforeVat > 0 ? 'text-danger font-bold' : ''}">-${formatNumber(cat.returnsBeforeVat || cat.returns || 0)} ر.س</td>
+          <td class="text-left font-bold text-spruce">${formatNumber(cat.netSalesBeforeVat || cat.net || 0)} ر.س</td>
+          <td class="text-center font-bold font-mono">${((Number(cat.discountRate !== undefined ? cat.discountRate : (cat.id === 1 ? customer.cat1_discount_rate : (cat.id === 2 ? customer.cat2_discount_rate : customer.cat3_discount_rate))) || 0) * 100).toFixed(1)}%</td>
+          <td class="text-left font-bold text-rebate">${formatNumber(cat.earnedDiscount || cat.earned || 0)} ر.س</td>
+        </tr>
+      `;
+    }).join('');
+
+    const totalInvCount = categoriesSummary.reduce((s, c) => s + (c.invoiceCount || 0), 0);
+    const totalRetCount = categoriesSummary.reduce((s, c) => s + (c.returnCount || 0), 0);
+
+    categoriesSummaryHtml = `
+      <section class="categories-section">
+        <div class="section-title">جدول تحليل فئات المبيعات الثلاث وحساب الخصم المكتسب (قاعدة بيانات إنفوسوفت ERP)</div>
+        <table class="summary-table">
+          <thead>
+            <tr>
+              <th style="width: 22%;">فئة الخصم</th>
+              <th style="width: 9%;">عدد الفواتير</th>
+              <th style="width: 14%;">إجمالي المبيعات</th>
+              <th style="width: 9%;">عدد المرتجعات</th>
+              <th style="width: 13%;">إجمالي المرتجعات</th>
+              <th style="width: 14%;">صافي المبيعات</th>
+              <th style="width: 9%;">معدل الخصم</th>
+              <th style="width: 14%;">الخصم المكتسب المستحق</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${catRows}
+          </tbody>
+          <tfoot>
+            <tr class="summary-total-row">
+              <td>الإجمالي المجمع لكافة الفئات</td>
+              <td class="text-center font-bold">${totalInvCount}</td>
+              <td class="text-left font-bold">${formatNumber(totalGrossSales)} ر.س</td>
+              <td class="text-center font-bold text-danger">${totalRetCount}</td>
+              <td class="text-left font-bold text-danger">-${formatNumber(totalReturns)} ر.س</td>
+              <td class="text-left font-bold text-spruce">${formatNumber(totalNetSales)} ر.س</td>
+              <td class="text-center">-</td>
+              <td class="text-left font-bold text-rebate">${formatNumber(totalRebateEarned)} ر.س</td>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+    `;
+  }
 
   // Render invoice rows and nested settlements/returns
   const invoiceRowsHtml = breakdown.map((inv, index) => {
@@ -39,19 +104,36 @@ function generateStatementHtml(statement, options = {}) {
       statusText = 'مسددة جزئياً';
     }
 
+    let catPillClass = 'cat-pill-general';
+    let catPillText = 'عام';
+    if (inv.category_id === 1) {
+      catPillClass = 'cat-pill-nodisc';
+      catPillText = 'لا تشمل';
+    } else if (inv.category_id === 2) {
+      catPillClass = 'cat-pill-reduced';
+      catPillText = 'مخفض';
+    }
+
+    const descHtml = inv.description ? `<div class="inv-desc text-muted">${inv.description}</div>` : '';
+
     // Returns under invoice
-    const returnsHtml = (inv.returns || []).map(ret => `
+    const returnsHtml = (inv.returns || []).map(ret => {
+      const yearInfo = ret.linked_invoice_year ? ` [سنة ${ret.linked_invoice_year}]` : '';
+      const linkInfo = ret.linked_invoice_ref ? `مرتبط بالفاتورة ${ret.linked_invoice_ref}${yearInfo}` : '';
+      return `
       <tr class="sub-row return-row">
-        <td colspan="2" class="sub-title">
+        <td colspan="3" class="sub-title">
           <span class="sub-icon">↩</span>
-          مرتجع / تالف: سند رقم <strong>${ret.accounting_trans_id}</strong>
+          مرتجع: سند رقم <strong>${ret.accounting_trans_id}</strong>
+          ${linkInfo ? `<span class="badge ${ret.linked_invoice_year === '2025' ? 'badge-late' : 'badge-eligible'}">${linkInfo}</span>` : ''}
           ${ret.notes ? `<span class="notes">(${ret.notes})</span>` : ''}
         </td>
         <td class="text-center">${formatDate(ret.adjustment_date)}</td>
         <td class="text-danger font-bold">-${formatNumber(ret.amount)} ر.س</td>
-        <td colspan="6" class="text-muted text-sm">تخفيض لوعاء الفاتورة وصافيها</td>
+        <td colspan="6" class="text-muted text-sm">خصم من فئة: ${ret.category_name || (inv.category_id === 1 ? 'لا تشمل' : (inv.category_id === 2 ? 'مخفض' : 'عام'))}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
 
     // Settlements under invoice
     const settlementsHtml = (inv.settlements || []).map(st => {
@@ -67,15 +149,15 @@ function generateStatementHtml(statement, options = {}) {
 
       return `
         <tr class="sub-row settlement-row">
-          <td colspan="2" class="sub-title">
+          <td colspan="3" class="sub-title">
             <span class="sub-icon">↳</span>
             سداد مرتبط (FIFO): سند رقم <strong>${st.payment_trans_id}</strong>
           </td>
           <td class="text-center">${formatDate(st.payment_date)}</td>
-          <td colspan="2" class="text-success font-bold">+${formatNumber(st.amount_applied)} ر.س</td>
+          <td class="text-success font-bold">+${formatNumber(st.amount_applied)} ر.س</td>
           <td class="text-center">${st.grace_days} يوم</td>
           <td class="text-center">${st.diff_days} يوم</td>
-          <td class="text-center font-bold text-rebate">+${formatNumber(st.discount_earned)} ر.س</td>
+          <td class="text-left font-bold text-rebate">+${formatNumber(st.discount_earned)} ر.س</td>
           <td colspan="2" class="text-center">
             <span class="badge ${badgeClass}">${badgeText}</span>
           </td>
@@ -86,7 +168,13 @@ function generateStatementHtml(statement, options = {}) {
     return `
       <tbody class="invoice-group">
         <tr class="main-invoice-row ${index % 2 === 1 ? 'row-alt' : ''}">
-          <td class="text-center font-bold">${inv.accounting_trans_id}</td>
+          <td class="text-center">
+            <span class="font-bold">${inv.accounting_trans_id}</span>
+            ${descHtml}
+          </td>
+          <td class="text-center">
+            <span class="cat-pill ${catPillClass}">${catPillText}</span>
+          </td>
           <td class="text-center">${formatDate(inv.invoice_date)}</td>
           <td class="text-left font-bold">${formatNumber(inv.gross_amount)}</td>
           <td class="text-left ${inv.total_returns > 0 ? 'text-danger font-bold' : 'text-muted'}">
@@ -377,6 +465,75 @@ function generateStatementHtml(statement, options = {}) {
       color: #475569;
     }
 
+    /* InfoSoft 3-Categories Styling */
+    .categories-section {
+      margin-bottom: 14px;
+      page-break-inside: avoid;
+    }
+    .section-title {
+      font-size: 11px;
+      font-weight: 800;
+      color: #0E2F33;
+      margin-bottom: 6px;
+      padding-right: 6px;
+      border-right: 3px solid #B08B4F;
+    }
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9.5px;
+      margin-bottom: 8px;
+    }
+    .summary-table th {
+      background: #0E2F33;
+      color: #E6D6B8;
+      padding: 6px 6px;
+      border: 1px solid #0E2F33;
+      font-weight: 700;
+      text-align: center;
+    }
+    .summary-table td {
+      padding: 6px 6px;
+      border: 1px solid #CBD5E1;
+      background: #FFFFFF;
+    }
+    .summary-total-row td {
+      background: #F1F5F9;
+      font-weight: 800;
+      border-top: 2px solid #0E2F33;
+    }
+    .cat-pill {
+      display: inline-block;
+      padding: 1.5px 5px;
+      border-radius: 3px;
+      font-size: 8px;
+      font-weight: 800;
+    }
+    .cat-pill-nodisc {
+      background: #FEE2E2;
+      color: #991B1B;
+      border: 1px solid #FCA5A5;
+    }
+    .cat-pill-reduced {
+      background: #FEF3C7;
+      color: #92400E;
+      border: 1px solid #FCD34D;
+    }
+    .cat-pill-general {
+      background: #DCFCE7;
+      color: #166534;
+      border: 1px solid #86EFAC;
+    }
+    .inv-desc {
+      font-size: 8px;
+      color: #64748B;
+      margin-top: 1px;
+      max-width: 130px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     /* Helper styles */
     .text-center { text-align: center; }
     .text-left { text-align: left; }
@@ -485,20 +642,24 @@ function generateStatementHtml(statement, options = {}) {
           <span class="info-value">${customer.accounting_system_id}</span>
         </div>
         <div class="info-item">
-          <span class="info-label">هاتف / جوال التواصل:</span>
-          <span class="info-value">${customer.phone || '-'}</span>
+          <span class="info-label">مهلة السماح الافتراضية:</span>
+          <span class="info-value">${customer.default_grace_days || 30} يوماً</span>
         </div>
         <div class="info-item">
           <span class="info-label">البريد الإلكتروني للإشعارات:</span>
           <span class="info-value">${customer.email || '-'}</span>
         </div>
         <div class="info-item">
-          <span class="info-label">مهلة السماح الافتراضية:</span>
-          <span class="info-value">${customer.default_grace_days || 30} يوماً</span>
+          <span class="info-label">هاتف / جوال التواصل:</span>
+          <span class="info-value">${customer.phone || '-'}</span>
         </div>
         <div class="info-item">
-          <span class="info-label">نسبة الخصم المعتمدة:</span>
-          <span class="info-value">${((Number(customer.default_discount_rate) || 0.07) * 100).toFixed(1)}%</span>
+          <span class="info-label">نسب الخصم (فئة 1 / فئة 2 / فئة 3):</span>
+          <span class="info-value">
+            <span style="color:#DC2626;">${((Number(customer.cat1_discount_rate !== undefined ? customer.cat1_discount_rate : 0.00)) * 100).toFixed(1)}%</span> / 
+            <span style="color:#D97706;">${((Number(customer.cat2_discount_rate !== undefined ? customer.cat2_discount_rate : 0.03)) * 100).toFixed(1)}%</span> / 
+            <span style="color:#059669;">${((Number(customer.cat3_discount_rate !== undefined ? customer.cat3_discount_rate : (customer.default_discount_rate || 0.07))) * 100).toFixed(1)}%</span>
+          </span>
         </div>
       </div>
     </section>
@@ -533,20 +694,24 @@ function generateStatementHtml(statement, options = {}) {
       </div>
     </section>
 
+    <!-- InfoSoft 3-Categories Summary Table -->
+    ${categoriesSummaryHtml}
+
     <!-- Table -->
     <table class="ledger-table">
       <thead>
         <tr>
-          <th style="width: 10%;">رقم الفاتورة</th>
-          <th style="width: 10%;">التاريخ</th>
-          <th style="width: 11%;">أصل الفاتورة</th>
-          <th style="width: 10%;">المرتجعات</th>
-          <th style="width: 11%;">الصافي</th>
-          <th style="width: 8%;">المهلة</th>
-          <th style="width: 8%;">النسبة</th>
-          <th style="width: 11%;">الخصم المكتسب</th>
-          <th style="width: 11%;">المتبقي</th>
-          <th style="width: 10%;">الحالة</th>
+          <th style="width: 14%;">رقم الفاتورة والبيان</th>
+          <th style="width: 7%;">الفئة</th>
+          <th style="width: 9%;">التاريخ</th>
+          <th style="width: 10%;">أصل الفاتورة</th>
+          <th style="width: 9%;">المرتجعات</th>
+          <th style="width: 10%;">الصافي</th>
+          <th style="width: 7%;">المهلة</th>
+          <th style="width: 7%;">النسبة</th>
+          <th style="width: 10%;">الخصم المكتسب</th>
+          <th style="width: 9%;">المتبقي</th>
+          <th style="width: 8%;">الحالة</th>
         </tr>
       </thead>
       ${invoiceRowsHtml}

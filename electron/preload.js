@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('api', {
   // Transactions
   createInvoice: (data) => ipcRenderer.invoke('invoice:create', data),
   updateInvoice: (id, data) => ipcRenderer.invoke('invoice:update', { id, data }),
+  updateInvoiceCategory: (invoiceId, categoryId, customRate) => ipcRenderer.invoke('invoice:category-update', { invoiceId, categoryId, customRate }),
   grantInvoiceException: (id, reason) => ipcRenderer.invoke('invoice:exception-grant', { id, reason }),
   revokeInvoiceException: (id) => ipcRenderer.invoke('invoice:exception-revoke', id),
 
@@ -27,6 +28,15 @@ contextBridge.exposeInMainWorld('api', {
 
   createAdjustment: (data) => ipcRenderer.invoke('adjustment:create', data),
   updateAdjustment: (id, data) => ipcRenderer.invoke('adjustment:update', { id, data }),
+
+  // InfoSoft SQL Server Integration
+  infosoft: {
+    getStatus: () => ipcRenderer.invoke('infosoft:status'),
+    getCustomers: () => ipcRenderer.invoke('infosoft:customers'),
+    getStatement: (customerId, config) => ipcRenderer.invoke('infosoft:statement', { customerId, config }),
+    syncCustomer: (customerId, config) => ipcRenderer.invoke('infosoft:sync-customer', { customerId, config }),
+    configure: (newConfig) => ipcRenderer.invoke('infosoft:config', newConfig)
+  },
 
   // Settings & Email
   getSettings: () => ipcRenderer.invoke('settings:get'),
