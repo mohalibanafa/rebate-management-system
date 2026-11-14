@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   X, Printer, FileText, CheckCircle2, AlertTriangle, 
   ShieldCheck, CornerDownLeft, Clock, Sparkles, RotateCw,
-  Tag, CheckSquare, Square, Layers, Info
+  Tag, CheckSquare, Square, Layers, Info,
+  ChevronDown, ChevronUp, RotateCcw, DollarSign, Calendar
 } from 'lucide-react';
 
 const cleanRate = (rate, defaultVal = 0) => {
@@ -17,6 +18,9 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
   const [exceptionModalInv, setExceptionModalInv] = useState(null);
   const [exceptionReason, setExceptionReason] = useState('');
   const [exportingPdf, setExportingPdf] = useState(false);
+
+  // Tree expansion state: set of invoice IDs that are expanded
+  const [expandedInvoiceIds, setExpandedInvoiceIds] = useState(new Set());
 
   // Editable customer configuration state
   const [custEmail, setCustEmail] = useState('');
@@ -52,6 +56,9 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
       setError(null);
       const data = await window.api.getCustomerStatement(customerId);
       setStatement(data);
+      if (data?.breakdown) {
+        setExpandedInvoiceIds(new Set(data.breakdown.map(i => i.id)));
+      }
       if (data?.customer) {
         setCustEmail(data.customer.email || '');
         setRate1(cleanRate(data.customer.cat1_discount_rate, 0));
@@ -144,6 +151,24 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
     } catch (err) {
       alert('خطأ أثناء الحفظ: ' + err.message);
     }
+  };
+
+  const toggleInvoiceExpand = (invId) => {
+    setExpandedInvoiceIds(prev => {
+      const next = new Set(prev);
+      if (next.has(invId)) next.delete(invId);
+      else next.add(invId);
+      return next;
+    });
+  };
+
+  const handleExpandAll = () => {
+    if (!statement?.breakdown) return;
+    setExpandedInvoiceIds(new Set(statement.breakdown.map(i => i.id)));
+  };
+
+  const handleCollapseAll = () => {
+    setExpandedInvoiceIds(new Set());
   };
 
   const handleToggleSelectAll = () => {
@@ -558,7 +583,7 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                       حفظ النسب
                     </button>
                     <button 
-                      onClick={handleSyncFromInfosoft} 
+                      onClick={handleManualSync} 
                       disabled={isSyncing} 
                       className="flex-1 py-1.5 bg-teal-forest hover:bg-teal-forest-hover text-sand-warm rounded-lg font-bold text-xs shadow-sm transition flex items-center justify-center gap-1"
                       title="جلب وتحديث الفواتير والمرتجعات مباشرة من قاعدة بيانات إنفوسوفت"
@@ -570,281 +595,486 @@ export default function CustomerStatementModal({ customerId, isOpen, onClose, on
                 </div>
               </div>
 
-              {/* Invoices & Settlements Tree Table */}
-              <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-                  <h3 className="font-bold text-spruce-900 text-xs flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-teal-forest" />
-                    جدول الفواتير التفصيلي وتوزيع السدادات بطريقة FIFO مع احتساب الخصم
-                  </h3>
-                  <span className="text-[11px] text-slate-500 font-medium">
-                    عدد الفواتير: {statement.breakdown.length}
-                  </span>
+              {/* Invoices & Settlements Relational Tree (شجرة الحركات وعلاقات الترابط المحاسبي) */}
+              <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-corporate bg-white">
+                {/* Tree Header */}
+                <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Layers className="w-5 h-5 text-teal-forest" />
+                      <h3 className="font-black text-spruce-900 text-sm">
+                        شجرة الحركات المترابطة واحتساب خصم تعجيل الدفع (FIFO)
+                      </h3>
+                      <span className="text-[10px] font-bold bg-teal-forest/10 text-teal-forest px-2 py-0.5 rounded-full border border-teal-forest/20">
+                        Tree Hierarchy
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      تمثيل شجري مترابط يربط كل فاتورة مبيعات (الجذر) بالمرتجعات المحسومة منها وسندات القبض المسددة لها وحساب الأثر المالي اللحظي.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-stretch md:self-auto justify-between md:justify-end no-print">
+                    <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium">
+                      <span className="px-2.5 py-1 bg-white rounded-lg border border-slate-200 shadow-xs">
+                        الفواتير: <strong className="text-spruce-900">{statement.breakdown.length}</strong>
+                      </span>
+                      <span className="px-2.5 py-1 bg-rose-50 text-rose-800 rounded-lg border border-rose-200 shadow-xs font-semibold">
+                        المرتجعات: <strong>{(statement.breakdown || []).reduce((sum, inv) => sum + (inv.returns?.length || 0), 0)}</strong>
+                      </span>
+                      <span className="px-2.5 py-1 bg-teal-50 text-teal-900 rounded-lg border border-teal-200 shadow-xs font-semibold">
+                        السدادات: <strong>{(statement.breakdown || []).reduce((sum, inv) => sum + (inv.settlements?.length || 0), 0)}</strong>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleExpandAll}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                        title="توسيع كافة فروع الحركات"
+                      >
+                        <ChevronDown className="w-3.5 h-3.5" />
+                        توسيع الكل
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCollapseAll}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                        title="طي كافة فروع الحركات"
+                      >
+                        <ChevronUp className="w-3.5 h-3.5" />
+                        طي الكل
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Batch Selection Action Bar */}
-                {selectedInvoiceIds.length > 0 && (
-                  <div className="bg-teal-50 border-b border-teal-200 px-4 py-2.5 flex items-center justify-between no-print animate-fade-in">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-black text-teal-900">
-                        تم تحديد {selectedInvoiceIds.length} فاتورة
-                      </span>
-                      <span className="text-[11px] text-teal-700">
-                        (من إجمالي {statement.breakdown.length})
-                      </span>
-                    </div>
+                <div className="px-4 py-2.5 bg-slate-100/60 border-b border-slate-200 flex items-center justify-between text-xs no-print">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-spruce-900 select-none">
+                    <input
+                      type="checkbox"
+                      checked={selectedInvoiceIds.length > 0 && selectedInvoiceIds.length === statement.breakdown.length}
+                      onChange={handleToggleSelectAll}
+                      disabled={isReadOnly || statement.breakdown.length === 0}
+                      className="w-4 h-4 rounded text-teal-forest border-slate-300 focus:ring-teal-forest cursor-pointer"
+                    />
+                    <span>تحديد الكل ({selectedInvoiceIds.length} فاتورة محددة)</span>
+                  </label>
+
+                  {selectedInvoiceIds.length > 0 && (
                     <div className="flex items-center gap-2">
                       <button
+                        type="button"
                         onClick={() => handleOpenCategoryModal()}
                         disabled={isReadOnly}
                         className="px-3.5 py-1.5 bg-teal-forest hover:bg-teal-forest-hover text-sand-warm rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm"
                       >
                         <Tag className="w-3.5 h-3.5 text-gold-bronze" />
-                        تغيير فئة الخصم للفواتير المحددة
+                        تغيير فئة الخصم للفواتير المحددة ({selectedInvoiceIds.length})
                       </button>
                       <button
+                        type="button"
                         onClick={() => setSelectedInvoiceIds([])}
                         className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold transition"
                       >
                         إلغاء التحديد
                       </button>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-right text-xs">
-                    <thead className="bg-slate-50/80 text-spruce-900 border-b border-slate-200 uppercase font-bold text-[11px]">
-                      <tr>
-                        <th className="py-2.5 px-3 w-8 text-center no-print">
-                          <input
-                            type="checkbox"
-                            checked={selectedInvoiceIds.length > 0 && selectedInvoiceIds.length === statement.breakdown.length}
-                            onChange={handleToggleSelectAll}
-                            disabled={isReadOnly || statement.breakdown.length === 0}
-                            className="w-4 h-4 rounded text-teal-forest border-slate-300 focus:ring-teal-forest cursor-pointer"
-                            title="تحديد كل الفواتير"
-                          />
-                        </th>
-                        <th className="py-2.5 px-3">رقم الفاتورة</th>
-                        <th className="py-2.5 px-3">التاريخ</th>
-                        <th className="py-2.5 px-3">بيان الفاتورة (custnm)</th>
-                        <th className="py-2.5 px-3">فئة الخصم</th>
-                        <th className="py-2.5 px-3">الإجمالي (أصل)</th>
-                        <th className="py-2.5 px-3">المرتجع</th>
-                        <th className="py-2.5 px-3">الصافي</th>
-                        <th className="py-2.5 px-3">نسبة الخصم</th>
-                        <th className="py-2.5 px-3">المهلة</th>
-                        <th className="py-2.5 px-3 text-gold-bronze">الخصم المعتمد</th>
-                        <th className="py-2.5 px-3">المتبقي</th>
-                        <th className="py-2.5 px-3">الحالة</th>
-                        <th className="py-2.5 px-3 no-print">الإجراءات</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {statement.breakdown.length === 0 ? (
-                        <tr>
-                          <td colSpan="14" className="py-8 text-center text-slate-400">
-                            لا توجد فواتير مسجلة لهذا العميل حتى الآن.
-                          </td>
-                        </tr>
-                      ) : (
-                        statement.breakdown.map((inv) => (
-                          <React.Fragment key={inv.id}>
-                            {/* Main Invoice Row */}
-                            <tr className={`hover:bg-slate-50/80 transition-colors font-medium ${selectedInvoiceIds.includes(inv.id) ? 'bg-teal-50/40' : ''}`}>
-                              <td className="py-3 px-3 w-8 text-center no-print">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedInvoiceIds.includes(inv.id)}
-                                  onChange={() => handleToggleSelectInvoice(inv.id)}
-                                  disabled={isReadOnly}
-                                  className="w-4 h-4 rounded text-teal-forest border-slate-300 focus:ring-teal-forest cursor-pointer"
-                                />
-                              </td>
-                              <td className="py-3 px-3">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-mono font-bold text-spruce-900">{inv.accounting_trans_id}</span>
-                                  {inv.is_corrected === 1 && (
-                                    <span className="text-[10px] bg-sand-light text-spruce-900 border border-sand-warm px-1 rounded">
-                                      مصححة
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="py-3 px-3 text-slate-600 whitespace-nowrap">{inv.invoice_date}</td>
-                              <td className="py-3 px-3 text-slate-700 max-w-xs truncate" title={inv.description}>
-                                {inv.description || '-'}
-                              </td>
-                              <td className="py-2 px-3 whitespace-nowrap">
-                                <div className="flex items-center gap-1.5">
-                                  <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border shadow-xs ${
-                                    inv.category_id === 1 
-                                      ? 'bg-rose-50 text-rose-800 border-rose-300' 
-                                      : inv.category_id === 2 
-                                        ? 'bg-amber-50 text-amber-900 border-amber-300' 
-                                        : 'bg-emerald-50 text-emerald-900 border-emerald-300'
-                                  }`}>
-                                    {inv.category_id === 1 ? '1. لا تشمل (0%)' : inv.category_id === 2 ? `2. مخفض (${(inv.discount_rate * 100).toFixed(1)}%)` : `3. عام (${(inv.discount_rate * 100).toFixed(1)}%)`}
-                                  </span>
-                                  {inv.is_category_manual === 1 && (
-                                    <span className="text-[9px] text-teal-forest font-black" title="تم تحديد الفئة يدوياً من قبل المستخدم">
-                                      ★ يدوي
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td className="py-3 px-3 font-semibold text-slate-800">{inv.gross_amount.toLocaleString()} ر.س</td>
-                              <td className="py-3 px-3 text-rose-600">
-                                {inv.total_returns > 0 ? `-${inv.total_returns.toLocaleString()} ر.س` : '-'}
-                              </td>
-                              <td className="py-3 px-3 font-bold text-spruce-900">{inv.net_total.toLocaleString()} ر.س</td>
-                              <td className="py-3 px-3 text-slate-700 font-mono">{(inv.discount_rate * 100).toFixed(1)}%</td>
-                              <td className="py-3 px-3 text-slate-700">{inv.grace_days} يوم</td>
-                              <td className="py-3 px-3 font-black text-gold-bronze">
-                                {inv.earned_discount > 0 ? `${inv.earned_discount.toLocaleString()} ر.س` : '0 ر.س'}
-                              </td>
-                              <td className="py-3 px-3 font-semibold">
-                                {inv.remaining_unpaid > 0 ? (
-                                  <span className="text-amber-800 font-bold">{inv.remaining_unpaid.toLocaleString()} ر.س</span>
-                                ) : (
-                                  <span className="text-teal-forest font-bold">0.00 ر.س</span>
-                                )}
-                              </td>
-                              <td className="py-3 px-3">
-                                {inv.status === 'FULLY_PAID' ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-teal-forest/15 text-teal-forest font-bold">
-                                    <CheckCircle2 className="w-3 h-3" />
-                                    مسددة بالكامل
-                                  </span>
-                                ) : inv.status === 'PARTIALLY_PAID' ? (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-900 font-bold">
-                                    مسددة جزئياً
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-slate-100 text-slate-600 font-medium">
-                                    غير مسددة
+                {/* Invoices Tree Nodes Container */}
+                <div className="p-4 space-y-4 bg-slate-50/40">
+                  {statement.breakdown.length === 0 ? (
+                    <div className="py-12 text-center text-slate-400 bg-white rounded-xl border border-slate-200">
+                      لا توجد فواتير مسجلة لهذا العميل حتى الآن.
+                    </div>
+                  ) : (
+                    statement.breakdown.map((inv) => {
+                      const isExpanded = expandedInvoiceIds.has(inv.id);
+                      const isSelected = selectedInvoiceIds.includes(inv.id);
+                      const totalPaidOnInv = (inv.settlements || []).reduce((sum, s) => sum + (s.amount_applied || 0), 0);
+
+                      return (
+                        <div
+                          key={inv.id}
+                          className={`rounded-2xl border transition-all duration-200 overflow-hidden shadow-xs ${
+                            isSelected
+                              ? 'border-teal-forest bg-teal-50/20 ring-1 ring-teal-forest'
+                              : 'border-slate-200 bg-white hover:border-slate-300'
+                          }`}
+                        >
+                          {/* Invoice Parent Node Header */}
+                          <div className="p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              {/* Batch Selection Checkbox */}
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => handleToggleSelectInvoice(inv.id)}
+                                disabled={isReadOnly}
+                                className="w-4 h-4 rounded text-teal-forest border-slate-300 focus:ring-teal-forest cursor-pointer no-print"
+                              />
+
+                              {/* Expand/Collapse Chevron Button */}
+                              <button
+                                type="button"
+                                onClick={() => toggleInvoiceExpand(inv.id)}
+                                className="p-1 hover:bg-slate-100 rounded-lg text-slate-500 transition no-print"
+                                title={isExpanded ? 'طي الفروع' : 'توسيع الفروع'}
+                              >
+                                <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                              </button>
+
+                              {/* Invoice Number */}
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
+                                  فاتورة
+                                </span>
+                                <span className="font-mono font-black text-sm text-spruce-900 tracking-tight">
+                                  #{inv.accounting_trans_id}
+                                </span>
+                                {inv.is_corrected === 1 && (
+                                  <span className="text-[10px] bg-sand-light text-spruce-900 border border-sand-warm px-1.5 py-0.5 rounded font-bold">
+                                    مصححة
                                   </span>
                                 )}
-                              </td>
-                              <td className="py-3 px-3 no-print">
-                                <div className="flex items-center gap-1.5">
-                                  {!isReadOnly && (
+                              </div>
+
+                              {/* Invoice Date */}
+                              <div className="flex items-center gap-1 text-slate-500 text-xs">
+                                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                <span>{inv.invoice_date}</span>
+                              </div>
+
+                              {/* Invoice Description (custnm) */}
+                              {inv.description && (
+                                <div className="text-xs text-slate-700 bg-slate-100/80 px-2.5 py-0.5 rounded-lg border border-slate-200 font-medium max-w-xs truncate" title={inv.description}>
+                                  {inv.description}
+                                </div>
+                              )}
+
+                              {/* Category Badge */}
+                              <div className="flex items-center gap-1">
+                                <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-bold border shadow-xs ${
+                                  inv.category_id === 1 
+                                    ? 'bg-rose-50 text-rose-800 border-rose-300' 
+                                    : inv.category_id === 2 
+                                      ? 'bg-amber-50 text-amber-900 border-amber-300' 
+                                      : 'bg-teal-50 text-teal-forest border-teal-200'
+                                }`}>
+                                  {inv.category_name || (inv.category_id === 1 ? '1. لا يشمل (0%)' : inv.category_id === 2 ? ('2. مخفض (' + (inv.discount_rate * 100).toFixed(1) + '%)') : ('3. عام (' + (inv.discount_rate * 100).toFixed(1) + '%)'))}
+                                </span>
+                                {inv.is_category_manual === 1 && (
+                                  <span className="text-[9px] text-teal-forest font-black" title="تم تحديد الفئة يدوياً من قبل المستخدم">
+                                    ★ يدوي
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Grace Period */}
+                              <div className="text-[11px] text-slate-500 font-medium">
+                                المهلة: <strong>{inv.grace_days}</strong> يوم
+                              </div>
+                            </div>
+
+                            {/* Right Status & Actions */}
+                            <div className="flex items-center gap-2 self-end md:self-auto">
+                              {/* Payment Status Pill */}
+                              {inv.status === 'FULLY_PAID' ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] bg-teal-forest/15 text-teal-forest font-bold">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  مسددة بالكامل
+                                </span>
+                              ) : inv.status === 'PARTIALLY_PAID' ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] bg-amber-100 text-amber-900 font-bold">
+                                  <Clock className="w-3.5 h-3.5 text-amber-700" />
+                                  مسددة جزئياً
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] bg-slate-100 text-slate-600 font-medium">
+                                  غير مسددة
+                                </span>
+                              )}
+
+                              {/* Branch count badge */}
+                              <button
+                                type="button"
+                                onClick={() => toggleInvoiceExpand(inv.id)}
+                                className="text-[11px] text-slate-500 hover:text-spruce-900 font-medium px-2 py-0.5 bg-slate-100 rounded-md transition no-print"
+                              >
+                                {inv.returns.length} مرتجع • {inv.settlements.length} سداد
+                              </button>
+
+                              {/* Action Buttons */}
+                              {!isReadOnly && (
+                                <div className="flex items-center gap-1.5 no-print">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenCategoryModal(inv.id)}
+                                    className="px-2.5 py-1 bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-forest border border-slate-200 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                                    title="تغيير فئة الخصم لهذه الفاتورة عبر نافذة الاختيار"
+                                  >
+                                    <Tag className="w-3 h-3 text-gold-bronze" />
+                                    تغيير الفئة
+                                  </button>
+
+                                  {inv.is_exception_granted === 1 ? (
                                     <button
                                       type="button"
-                                      onClick={() => handleOpenCategoryModal(inv.id)}
-                                      className="px-2 py-1 bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-forest border border-slate-200 rounded-lg text-[10px] font-bold transition flex items-center gap-1"
-                                      title="تغيير فئة الخصم لهذه الفاتورة عبر نافذة الاختيار"
+                                      onClick={() => handleRevokeException(inv.id)}
+                                      className="text-xs text-rose-600 hover:underline font-bold px-1"
+                                      title={inv.exception_reason}
                                     >
-                                      <Tag className="w-3 h-3 text-gold-bronze" />
-                                      تغيير الفئة
+                                      إلغاء الاستثناء
                                     </button>
-                                  )}
-                                  {!isReadOnly && (
-                                    inv.is_exception_granted === 1 ? (
+                                  ) : (
+                                    inv.settlements.some(s => !s.is_eligible) && (
                                       <button
-                                        onClick={() => handleRevokeException(inv.id)}
-                                        className="text-[11px] text-gold-bronze hover:text-rose-700 underline font-bold"
-                                        title={inv.exception_reason}
+                                        type="button"
+                                        onClick={() => {
+                                          setExceptionModalInv(inv);
+                                          setExceptionReason('');
+                                        }}
+                                        className="text-xs bg-sand-light text-spruce-900 border border-sand-warm hover:bg-sand-warm px-2.5 py-1 rounded-lg transition font-bold"
                                       >
-                                        إلغاء الاستثناء
+                                        اعتماد استثنائي
                                       </button>
-                                    ) : (
-                                      inv.settlements.some(s => !s.is_eligible) && (
-                                        <button
-                                          onClick={() => {
-                                            setExceptionModalInv(inv);
-                                            setExceptionReason('');
-                                          }}
-                                          className="text-[11px] bg-sand-light text-spruce-900 border border-sand-warm hover:bg-sand-warm px-2 py-1 rounded transition font-bold"
-                                        >
-                                          اعتماد استثنائي
-                                        </button>
-                                      )
                                     )
                                   )}
                                 </div>
-                              </td>
-                            </tr>
+                              )}
+                            </div>
+                          </div>
 
-                            {/* Exception Reason Banner */}
-                            {inv.is_exception_granted === 1 && (
-                              <tr className="bg-sand-light/50">
-                                <td colSpan="14" className="py-1 px-4 text-xs text-spruce-900 border-b border-sand-warm">
-                                  <span className="font-bold text-gold-bronze">ملاحظة الاستثناء الإداري:</span> تم اعتماد الخصم استثنائياً - التبرير: "{inv.exception_reason}"
-                                </td>
-                              </tr>
-                            )}
+                          {/* Arithmetic Relationship Strip (شريط ترابط المعادلة المحاسبية) */}
+                          <div className="px-4 py-2 bg-slate-50/90 border-t border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+                            <div className="flex flex-wrap items-center gap-2 font-semibold text-slate-700">
+                              <span className="text-slate-500 text-[11px]">أصل الفاتورة:</span>
+                              <strong className="text-spruce-900 font-mono">{inv.gross_amount.toLocaleString()} ر.س</strong>
 
-                            {/* Nested Returns Rows */}
-                            {inv.returns.map((ret) => (
-                              <tr key={`ret-${ret.id}`} className="bg-rose-50/40 text-rose-800 text-[11px]">
-                                <td className="py-1.5 px-3 pr-8" colSpan="6">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    <CornerDownLeft className="w-3.5 h-3.5 text-rose-500" />
-                                    <span>مرتجع بسند <strong>{ret.accounting_trans_id}</strong> بتاريخ {ret.adjustment_date}</span>
-                                    {ret.linked_invoice_year === '2025' && (
-                                      <span className="px-1.5 py-0.2 bg-purple-100 text-purple-800 border border-purple-200 rounded font-bold text-[10px]">
-                                        مرتجع من السنة السابقة (2025)
-                                      </span>
-                                    )}
-                                    <span className="text-[10px] px-1.5 py-0.2 bg-white/80 border border-rose-200 rounded font-semibold text-rose-900">
-                                      فئة الخصم: {ret.category_name || (ret.category_id === 1 ? 'لا تشمل' : (ret.category_id === 2 ? 'مخفض' : 'عام'))}
-                                    </span>
-                                    {ret.notes && <span className="text-slate-500">({ret.notes})</span>}
-                                  </div>
-                                </td>
-                                <td className="py-1.5 px-3 font-bold text-rose-700">-{ret.amount.toLocaleString()} ر.س</td>
-                                <td colSpan="7" className="py-1.5 px-3 text-slate-500 text-[10px]">
-                                  (محسوم من فئة الفاتورة الأصلية المقابلة)
-                                </td>
-                              </tr>
-                            ))}
+                              <span className="text-slate-400">➖</span>
 
-                            {/* Nested Settlement / Payment Rows */}
-                            {inv.settlements.map((settle, sIdx) => (
-                              <tr key={`settle-${sIdx}`} className="bg-teal-forest/5 text-slate-700 text-[11px]">
-                                <td className="py-1.5 px-3 pr-8" colSpan="7">
-                                  <div className="flex items-center gap-1.5">
-                                    <CornerDownLeft className="w-3.5 h-3.5 text-teal-forest" />
-                                    <span>
-                                      سداد بسند قبض رقم <strong className="text-spruce-900">{settle.payment_trans_id}</strong> بتاريخ {settle.payment_date}
-                                    </span>
-                                  </div>
-                                </td>
-                                <td className="py-1.5 px-3 font-bold text-spruce-900">
-                                  +{settle.amount_applied.toLocaleString()} ر.س
-                                </td>
-                                <td colSpan="2" className="py-1.5 px-3">
-                                  <span className="text-slate-600">
-                                    الفارق: <strong>{settle.diff_days}</strong> يوماً (المهلة: {settle.grace_days} يوم)
+                              <span className="text-slate-500 text-[11px]">المرتجع:</span>
+                              <strong className={inv.total_returns > 0 ? 'text-rose-600 font-mono font-bold' : 'text-slate-400 font-mono'}>
+                                {inv.total_returns > 0 ? '-' + inv.total_returns.toLocaleString() + ' ر.س' : '0 ر.س'}
+                              </strong>
+
+                              <span className="text-slate-400">🟰</span>
+
+                              <span className="text-teal-forest text-[11px] font-bold">الصافي الخاضع:</span>
+                              <strong className="text-teal-forest font-mono font-black">{inv.net_total.toLocaleString()} ر.س</strong>
+
+                              <span className="text-slate-400">➔</span>
+
+                              <span className="text-slate-500 text-[11px]">المسدد (FIFO):</span>
+                              <strong className="text-spruce-900 font-mono font-bold">{totalPaidOnInv.toLocaleString()} ر.س</strong>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              {/* Earned Discount Pill */}
+                              <div className="bg-sand-light border border-sand-warm px-3 py-1 rounded-xl flex items-center gap-1.5 shadow-xs">
+                                <Sparkles className="w-3.5 h-3.5 text-gold-bronze" />
+                                <span className="text-spruce-900 text-[11px] font-bold">الخصم المكتسب:</span>
+                                <span className="text-gold-bronze font-mono font-black text-xs">
+                                  {inv.earned_discount > 0 ? '+' + inv.earned_discount.toLocaleString() + ' ر.س' : '0 ر.س'}
+                                </span>
+                              </div>
+
+                              {/* Remaining Balance Pill */}
+                              <div>
+                                {inv.remaining_unpaid > 0 ? (
+                                  <span className="text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl text-xs font-bold font-mono inline-block">
+                                    المتبقي: {inv.remaining_unpaid.toLocaleString()} ر.س
                                   </span>
-                                </td>
-                                <td className="py-1.5 px-3 font-black text-gold-bronze">
-                                  {settle.discount_earned > 0 ? `+${settle.discount_earned.toLocaleString()} ر.س` : '0 ر.س'}
-                                </td>
-                                <td colSpan="3" className="py-1.5 px-3">
-                                  {settle.is_eligible ? (
-                                    <span className="inline-flex items-center gap-1 text-teal-forest font-bold">
-                                      <ShieldCheck className="w-3 h-3 text-teal-forest" />
-                                      {inv.is_exception_granted === 1 && settle.diff_days > settle.grace_days
-                                        ? 'مؤهل (معتمد باستثناء)'
-                                        : 'مؤهل للخصم (ضمن المهلة)'}
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 text-amber-700 font-bold">
-                                      <AlertTriangle className="w-3 h-3 text-amber-600" />
-                                      غير مؤهل (سداد متأخر بعد المهلة)
-                                    </span>
+                                ) : (
+                                  <span className="text-teal-forest bg-teal-50 border border-teal-200 px-2.5 py-1 rounded-xl text-xs font-bold inline-block">
+                                    مسددة بالكامل ✓
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Hierarchical Tree Branches (Collapsible) */}
+                          {isExpanded && (
+                            <div className="p-4 bg-slate-50/40 space-y-3">
+                              
+                              {/* Exception Banner if Active */}
+                              {inv.is_exception_granted === 1 && (
+                                <div className="bg-sand-light border border-sand-warm rounded-xl p-3 text-xs flex items-center justify-between text-spruce-900 shadow-xs">
+                                  <div className="flex items-center gap-2">
+                                    <ShieldCheck className="w-4 h-4 text-gold-bronze shrink-0" />
+                                    <div>
+                                      <strong className="text-gold-bronze">ملاحظة الاستثناء الإداري المعتمد:</strong>
+                                      <span className="mr-1 text-slate-700 font-medium">"{inv.exception_reason}"</span>
+                                    </div>
+                                  </div>
+                                  {!isReadOnly && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRevokeException(inv.id)}
+                                      className="text-rose-600 hover:text-rose-800 text-[11px] font-bold underline"
+                                    >
+                                      إلغاء الاستثناء
+                                    </button>
                                   )}
-                                </td>
-                              </tr>
-                            ))}
-                          </React.Fragment>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                                </div>
+                              )}
+
+                              {/* Tree Trunk Guide Rail */}
+                              <div className="relative mr-4 pr-5 border-r-2 border-teal-600/30 space-y-3">
+                                
+                                {/* Branch 1: Returns Tree Items */}
+                                {inv.returns && inv.returns.length > 0 && (
+                                  <div className="space-y-2">
+                                    <div className="text-[11px] font-bold text-rose-800 flex items-center gap-1.5">
+                                      <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                                      <span>المرتجعات والتوالف المرتبطة بالفاتورة ({inv.returns.length} حركة):</span>
+                                    </div>
+
+                                    {inv.returns.map((ret) => (
+                                      <div
+                                        key={'ret-' + ret.id}
+                                        className="relative bg-white border border-rose-200 rounded-xl p-3 shadow-xs hover:border-rose-300 transition-colors"
+                                      >
+                                        {/* Connector stem */}
+                                        <div className="absolute -right-5 top-4 w-3.5 h-0.5 bg-teal-600/30"></div>
+
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                          <div className="flex items-center gap-2 flex-wrap text-xs">
+                                            <span className="px-2 py-0.5 bg-rose-100 text-rose-900 font-bold rounded text-[10px] flex items-center gap-1">
+                                              <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                                              مرتجع مبيعات
+                                            </span>
+                                            <span className="font-mono font-bold text-spruce-900">
+                                              سند #{ret.accounting_trans_id}
+                                            </span>
+                                            <span className="text-slate-500 text-[11px]">
+                                              بتاريخ {ret.adjustment_date}
+                                            </span>
+                                            {ret.linked_invoice_year === '2025' && (
+                                              <span className="px-2 py-0.5 bg-purple-100 text-purple-800 border border-purple-200 rounded font-bold text-[10px]">
+                                                ★ مرتجع من السنة السابقة (2025)
+                                              </span>
+                                            )}
+                                            <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded font-semibold text-slate-700 text-[10px]">
+                                              خصم من فئة الفاتورة: {ret.category_name || (ret.category_id === 1 ? 'لا تشمل' : (ret.category_id === 2 ? 'مخفض' : 'عام'))}
+                                            </span>
+                                          </div>
+
+                                          <div className="text-right">
+                                            <span className="text-sm font-black text-rose-700 font-mono">
+                                              -{ret.amount.toLocaleString()} ر.س
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                                          <span>
+                                            {ret.notes ? 'البيان: ' + ret.notes : 'تم خصم قيمة هذا المرتجع لتقليص أصل الفاتورة والوعاء الخاضع للخصم'}
+                                          </span>
+                                          <span className="text-[10px] text-slate-400">
+                                            أثر محاسبي مباشر ✓
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Branch 2: FIFO Settlements Tree Items */}
+                                {inv.settlements && inv.settlements.length > 0 && (
+                                  <div className="space-y-2">
+                                    <div className="text-[11px] font-bold text-teal-forest flex items-center gap-1.5">
+                                      <DollarSign className="w-3.5 h-3.5 text-teal-forest" />
+                                      <span>سدادات سندات القبض وتوزيع السيولة بأسلوب FIFO ({inv.settlements.length} دفعة):</span>
+                                    </div>
+
+                                    {inv.settlements.map((settle, sIdx) => (
+                                      <div
+                                        key={'settle-' + sIdx}
+                                        className={`relative rounded-xl p-3 shadow-xs border transition-colors ${
+                                          settle.is_eligible 
+                                            ? 'bg-white border-teal-200 hover:border-teal-300' 
+                                            : 'bg-amber-50/40 border-amber-300 hover:border-amber-400'
+                                        }`}
+                                      >
+                                        {/* Connector stem */}
+                                        <div className="absolute -right-5 top-4 w-3.5 h-0.5 bg-teal-600/30"></div>
+
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                          <div className="flex items-center gap-2 flex-wrap text-xs">
+                                            <span className={`px-2 py-0.5 font-bold rounded text-[10px] flex items-center gap-1 ${
+                                              settle.is_eligible ? 'bg-teal-100 text-teal-900' : 'bg-amber-100 text-amber-900'
+                                            }`}>
+                                              <DollarSign className="w-3 h-3" />
+                                              سداد سند قبض (FIFO)
+                                            </span>
+                                            <span className="font-mono font-bold text-spruce-900">
+                                              سند #{settle.payment_trans_id}
+                                            </span>
+                                            <span className="text-slate-500 text-[11px]">
+                                              بتاريخ {settle.payment_date}
+                                            </span>
+                                            <span className="text-xs font-bold text-spruce-900 mr-2">
+                                              المبلغ الموزع: +{settle.amount_applied.toLocaleString()} ر.س
+                                            </span>
+                                          </div>
+
+                                          <div className="text-right">
+                                            <span className="text-sm font-black text-gold-bronze font-mono">
+                                              الخصم المكتسب: {settle.discount_earned > 0 ? '+' + settle.discount_earned.toLocaleString() + ' ر.س' : '0 ر.س'}
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        <div className="mt-2 pt-1.5 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px]">
+                                          <div className="text-slate-600 flex items-center gap-1.5 flex-wrap">
+                                            <span>فارق السداد: <strong>{settle.diff_days}</strong> يوماً</span>
+                                            <span className="text-slate-300">|</span>
+                                            <span>مهلة السماح المعتمدة: <strong>{settle.grace_days}</strong> يوماً</span>
+                                          </div>
+
+                                          <div>
+                                            {settle.is_eligible ? (
+                                              <span className="inline-flex items-center gap-1 text-teal-forest font-bold">
+                                                <ShieldCheck className="w-3.5 h-3.5 text-teal-forest" />
+                                                {inv.is_exception_granted === 1 && settle.diff_days > settle.grace_days
+                                                  ? 'مؤهل للخصم (معتمد استثنائياً)'
+                                                  : 'مؤهل للخصم (سداد في ' + settle.diff_days + ' يوم ضمن المهلة)'}
+                                              </span>
+                                            ) : (
+                                              <span className="inline-flex items-center gap-1 text-amber-700 font-bold">
+                                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                                غير مؤهل (سداد متأخر: الفارق {settle.diff_days} تجاوز المهلة {settle.grace_days} يوم)
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Branch 3: No returns and no settlements */}
+                                {(!inv.returns || inv.returns.length === 0) && (!inv.settlements || inv.settlements.length === 0) && (
+                                  <div className="relative bg-white border border-slate-200 rounded-xl p-3 text-slate-500 text-xs flex items-center gap-2">
+                                    <div className="absolute -right-5 top-4 w-3.5 h-0.5 bg-teal-600/30"></div>
+                                    <Info className="w-4 h-4 text-slate-400 shrink-0" />
+                                    <span>لم يتم تسجيل أي مرتجعات أو سدادات موزعة على هذه الفاتورة حتى الآن (المبلغ متبقي بالكامل بذمة العميل).</span>
+                                  </div>
+                                )}
+
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             </>

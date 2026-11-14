@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Users, Search, UserPlus, DollarSign, TrendingUp, 
+  Users, Search, DollarSign, TrendingUp, 
   AlertCircle, Edit, Trash2, Mail, Phone, Hash, 
-  CheckCircle2, FileText, ArrowUpRight, Send, Sparkles, Check, RotateCw
+  CheckCircle2, FileText, Send, Sparkles, Check, RotateCw,
+  ShieldCheck, X
 } from 'lucide-react';
 import CustomerStatementModal from './CustomerStatementModal';
 
@@ -11,7 +12,7 @@ const rateToPercent = (rate, defaultVal = 0) => {
   return Math.round((Number(rate) * 100 + Number.EPSILON) * 100) / 100;
 };
 
-export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnly }) {
+export default function CustomersDirectory({ isReadOnly }) {
   const [customers, setCustomers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -21,7 +22,7 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
   const [statementCustomerId, setStatementCustomerId] = useState(null);
   const [isStatementOpen, setIsStatementOpen] = useState(false);
 
-  // Customer Add/Edit Modal
+  // Customer Settings Modal (Edit Terms & Contact)
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [customerForm, setCustomerForm] = useState({
@@ -64,23 +65,6 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
     }
   };
 
-  const handleOpenAddModal = () => {
-    setEditingCustomer(null);
-    setCustomerForm({
-      name: '',
-      accounting_system_id: '',
-      email: '',
-      phone: '',
-      default_discount_rate: 7,
-      default_grace_days: 30,
-      cat1_discount_rate: 0,
-      cat2_discount_rate: 3,
-      cat3_discount_rate: 7
-    });
-    setModalError(null);
-    setIsCustomerModalOpen(true);
-  };
-
   const handleOpenEditModal = (cust) => {
     setEditingCustomer(cust);
     setCustomerForm({
@@ -100,12 +84,13 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
 
   const handleSaveCustomer = async (e, shouldSendWelcome = false) => {
     if (e) e.preventDefault();
+    if (!editingCustomer) return;
     setModalError(null);
 
     try {
       const payload = {
-        name: customerForm.name.trim(),
-        accounting_system_id: customerForm.accounting_system_id.trim(),
+        name: editingCustomer.name,
+        accounting_system_id: editingCustomer.accounting_system_id,
         email: customerForm.email.trim(),
         phone: customerForm.phone.trim() || null,
         default_discount_rate: Math.round(parseFloat(customerForm.cat3_discount_rate || customerForm.default_discount_rate) * 100) / 10000,
@@ -115,13 +100,7 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
         cat3_discount_rate: Math.round(parseFloat(customerForm.cat3_discount_rate) * 100) / 10000
       };
 
-      let savedCustomer;
-      if (editingCustomer) {
-        savedCustomer = await window.api.updateCustomer(editingCustomer.id, payload);
-      } else {
-        savedCustomer = await window.api.createCustomer(payload);
-      }
-
+      const savedCustomer = await window.api.updateCustomer(editingCustomer.id, payload);
       setIsCustomerModalOpen(false);
       await loadCustomers();
 
@@ -129,10 +108,10 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
       if (shouldSendWelcome && savedCustomer?.id) {
         await handleSendWelcomeEmail(savedCustomer.id, savedCustomer.email);
       } else {
-        showToast('تم حفظ بيانات العميل ونسب الفئات بنجاح.');
+        showToast('تم تحديث شروط الخصم وبيانات التواصل بنجاح.');
       }
     } catch (err) {
-      setModalError(err.message || 'حدث خطأ أثناء حفظ بيانات العميل.');
+      setModalError(err.message || 'حدث خطأ أثناء حفظ شروط العميل.');
     }
   };
 
@@ -323,15 +302,6 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
             <Sparkles className="w-4 h-4 text-gold-bronze" />
             استيراد من إنفوسوفت ERP
           </button>
-          {!isReadOnly && (
-            <button
-              onClick={handleOpenAddModal}
-              className="flex items-center gap-2 px-4 py-2.5 bg-teal-forest hover:bg-teal-forest-hover text-sand-warm rounded-xl text-xs font-bold shadow-sm transition border border-teal-forest"
-            >
-              <UserPlus className="w-4 h-4 text-gold-bronze" />
-              إضافة عميل جديد
-            </button>
-          )}
         </div>
       </div>
 
@@ -429,30 +399,21 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
                     <td className="py-3.5 px-4 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         
-                        {/* Statement Modal Button */}
+                        {/* Statement Modal Button - Primary Action */}
                         <button
                           onClick={() => {
                             setStatementCustomerId(cust.id);
                             setIsStatementOpen(true);
                           }}
-                          className="flex items-center gap-1 px-2.5 py-1.5 bg-spruce-900 text-sand-warm hover:bg-spruce-800 rounded-lg text-xs font-bold transition shadow-sm"
-                          title="عرض وتدقيق كشف الحساب التفصيلي"
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-spruce-900 text-sand-warm hover:bg-spruce-800 rounded-xl text-xs font-bold transition shadow-sm border border-teal-forest"
+                          title="عرض وتدقيق كشف الحساب التفصيلي وشجرة الحركات"
                         >
                           <FileText className="w-3.5 h-3.5 text-gold-bronze" />
-                          كشف الحساب
+                          كشف الحساب والتدقيق
                         </button>
 
                         {!isReadOnly && (
                           <>
-                            {/* Fast Entry Button */}
-                            <button
-                              onClick={() => onSelectCustomerForEntry(cust.id)}
-                              className="p-1.5 bg-sand-light text-spruce-900 hover:bg-sand-warm border border-sand-warm rounded-lg text-xs font-bold transition"
-                              title="تسجيل حركة سريعة لهذا العميل"
-                            >
-                              <ArrowUpRight className="w-4 h-4 text-gold-bronze" />
-                            </button>
-
                             {/* Welcome Email Button */}
                             <button
                               onClick={() => handleSendWelcomeEmail(cust.id, cust.email)}
@@ -463,16 +424,16 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
                               <Send className={`w-3.5 h-3.5 ${sendingWelcomeId === cust.id ? 'animate-pulse' : ''}`} />
                             </button>
 
-                            {/* Edit Button */}
+                            {/* Edit Customer Settings Button */}
                             <button
                               onClick={() => handleOpenEditModal(cust)}
-                              className="p-1.5 text-slate-400 hover:text-spruce-900 hover:bg-slate-100 rounded-lg transition"
-                              title="تعديل بيانات العميل"
+                              className="p-1.5 text-slate-500 hover:text-spruce-900 hover:bg-slate-100 rounded-lg transition border border-transparent hover:border-slate-200"
+                              title="تعديل شروط ونسب الخصم والبريد للعميل"
                             >
                               <Edit className="w-3.5 h-3.5" />
                             </button>
 
-                            {/* Delete Button */}
+                            {/* Delete Button (only if 0 invoices) */}
                             {cust.invoice_count === 0 && (
                               <button
                                 onClick={() => handleDeleteCustomer(cust)}
@@ -505,15 +466,38 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
         />
       )}
 
-      {/* Add / Edit Customer Modal */}
-      {isCustomerModalOpen && (
+      {/* Customer Settings & Terms Modal (Edit only - No manual customer creation) */}
+      {isCustomerModalOpen && editingCustomer && (
         <div className="fixed inset-0 z-50 bg-spruce-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-corporate-lg max-w-lg w-full p-6 border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <h3 className="text-base font-black text-spruce-900 flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-teal-forest" />
-                {editingCustomer ? 'تعديل بيانات العميل' : 'إضافة عميل جديد للنظام'}
+                <ShieldCheck className="w-5 h-5 text-teal-forest" />
+                تعديل شروط ونسب الخصم والاتصال للعميل
               </h3>
+              <button
+                onClick={() => setIsCustomerModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Read-only Customer Info Banner */}
+            <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl mb-4 text-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-slate-500 font-medium">اسم العميل:</span>
+                  <span className="font-bold text-spruce-900 mr-1.5">{editingCustomer.name}</span>
+                </div>
+                <div className="flex items-center gap-1 font-mono text-teal-forest font-bold bg-white px-2 py-0.5 rounded border border-slate-200">
+                  <Hash className="w-3 h-3 text-slate-400" />
+                  <span>{editingCustomer.accounting_system_id}</span>
+                </div>
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1">
+                * الحساب مرتبط ومزامن آلياً من قاعدة بيانات إنفوسوفت ERP.
+              </div>
             </div>
 
             {modalError && (
@@ -523,53 +507,28 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
             )}
 
             <form className="space-y-4 text-xs">
-              <div>
-                <label className="block font-bold text-spruce-900 mb-1">اسم العميل / الشركة:</label>
-                <input
-                  type="text"
-                  required
-                  value={customerForm.name}
-                  onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })}
-                  placeholder="مثال: مؤسسة الأمل للتجارة"
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none font-semibold text-spruce-900"
-                />
-              </div>
-
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-spruce-900 mb-1">الرقم بالنظام المحاسبي (فريد):</label>
-                  <input
-                    type="text"
-                    required
-                    value={customerForm.accounting_system_id}
-                    onChange={(e) => setCustomerForm({ ...customerForm, accounting_system_id: e.target.value })}
-                    placeholder="مثال: CUST-010"
-                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none font-mono"
-                  />
-                </div>
-
                 <div>
                   <label className="block font-bold text-spruce-900 mb-1">البريد الإلكتروني للإشعارات:</label>
                   <input
                     type="email"
-                    required
                     value={customerForm.email}
                     onChange={(e) => setCustomerForm({ ...customerForm, email: e.target.value })}
                     placeholder="client@domain.com"
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none"
                   />
                 </div>
-              </div>
 
-              <div>
-                <label className="block font-bold text-spruce-900 mb-1">رقم الهاتف (اختياري):</label>
-                <input
-                  type="text"
-                  value={customerForm.phone}
-                  onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })}
-                  placeholder="05xxxxxxxx"
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none"
-                />
+                <div>
+                  <label className="block font-bold text-spruce-900 mb-1">رقم الهاتف (اختياري):</label>
+                  <input
+                    type="text"
+                    value={customerForm.phone}
+                    onChange={(e) => setCustomerForm({ ...customerForm, phone: e.target.value })}
+                    placeholder="05xxxxxxxx"
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-teal-forest focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="pt-2 border-t border-slate-100">
@@ -643,18 +602,15 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
 
               {/* Action Buttons inside Modal */}
               <div className="pt-4 flex flex-col gap-2">
-                
-                {/* User Request Feature: Save & Send Welcome Email */}
-                {!editingCustomer && (
-                  <button
-                    type="button"
-                    onClick={(e) => handleSaveCustomer(e, true)}
-                    className="w-full py-2.5 px-4 bg-sand-light hover:bg-sand-warm text-spruce-900 border border-sand-warm rounded-xl font-black text-xs transition flex items-center justify-center gap-2 shadow-sm"
-                  >
-                    <Sparkles className="w-4 h-4 text-gold-bronze" />
-                    حفظ العميل وإرسال بريد ترحيبي بالخصم الذكي فوراً
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={(e) => handleSaveCustomer(e, true)}
+                  disabled={!customerForm.email}
+                  className="w-full py-2.5 px-4 bg-sand-light hover:bg-sand-warm text-spruce-900 border border-sand-warm rounded-xl font-black text-xs transition flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                >
+                  <Sparkles className="w-4 h-4 text-gold-bronze" />
+                  حفظ الشروط وإرسال بريد ترحيبي بالخصم الذكي للعميل
+                </button>
 
                 <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                   <button
@@ -669,7 +625,7 @@ export default function CustomersDirectory({ onSelectCustomerForEntry, isReadOnl
                     onClick={(e) => handleSaveCustomer(e, false)}
                     className="px-5 py-2 bg-teal-forest hover:bg-teal-forest-hover text-sand-warm rounded-xl font-bold shadow-sm"
                   >
-                    {editingCustomer ? 'حفظ التعديلات' : 'حفظ العميل فقط'}
+                    حفظ التعديلات
                   </button>
                 </div>
               </div>

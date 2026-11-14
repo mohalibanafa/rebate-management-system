@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Users, PlusCircle, Archive, Settings, Database, 
-  ShieldAlert, Sparkles, Building2, Server
+  Users, Archive, Settings, Database, 
+  ShieldAlert, Sparkles, Server
 } from 'lucide-react';
 import CustomersDirectory from './components/CustomersDirectory';
-import FastTransactionEntry from './components/FastTransactionEntry';
 import SettingsView from './components/SettingsView';
 import YearCloseModal from './components/YearCloseModal';
 
@@ -84,8 +83,7 @@ if (typeof window !== 'undefined' && !window.api) {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('CUSTOMERS'); // 'CUSTOMERS' | 'ENTRY' | 'SETTINGS'
-  const [preselectedCustomerId, setPreselectedCustomerId] = useState(null);
+  const [activeTab, setActiveTab] = useState('CUSTOMERS'); // 'CUSTOMERS' | 'SETTINGS'
 
   // Database and Archive state
   const [dbStatus, setDbStatus] = useState({ isReadOnly: false, fileName: 'rebate_system_active.db' });
@@ -114,15 +112,9 @@ export default function App() {
       const updatedStatus = await window.api.switchDatabase(dbItem.path, dbItem.isReadOnly);
       setDbStatus(updatedStatus);
       await loadDatabaseInfo();
-      setPreselectedCustomerId(null);
     } catch (err) {
       alert('خطأ أثناء تبديل قاعدة البيانات: ' + err.message);
     }
-  };
-
-  const handleSelectCustomerForEntry = (customerId) => {
-    setPreselectedCustomerId(customerId);
-    setActiveTab('ENTRY');
   };
 
   return (
@@ -203,7 +195,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* 3 Main Corporate Tabs */}
+        {/* Main Clean Corporate Navigation Tabs */}
         <div className="max-w-7xl mx-auto px-6 flex gap-8 text-xs border-t border-teal-forest/40">
           <button
             onClick={() => setActiveTab('CUSTOMERS')}
@@ -214,19 +206,7 @@ export default function App() {
             }`}
           >
             <Users className="w-4 h-4 text-gold-bronze" />
-            دليل العملاء وكشوفات الحساب
-          </button>
-
-          <button
-            onClick={() => setActiveTab('ENTRY')}
-            className={`py-3 px-2 font-bold flex items-center gap-2 border-b-2 transition ${
-              activeTab === 'ENTRY'
-                ? 'border-gold-bronze text-sand-warm'
-                : 'border-transparent text-sage-soft hover:text-sand-warm'
-            }`}
-          >
-            <PlusCircle className="w-4 h-4 text-gold-bronze" />
-            الإدخال السريع للحركات
+            دليل وكشوفات حسابات العملاء
           </button>
 
           <button
@@ -238,7 +218,7 @@ export default function App() {
             }`}
           >
             <Settings className="w-4 h-4 text-gold-bronze" />
-            الإعدادات والنظام المؤسسي
+            مركز الإعدادات والربط والتشخيص
           </button>
         </div>
       </header>
@@ -247,13 +227,6 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-6 py-6 flex-1 w-full">
         {activeTab === 'CUSTOMERS' ? (
           <CustomersDirectory
-            onSelectCustomerForEntry={handleSelectCustomerForEntry}
-            isReadOnly={dbStatus.isReadOnly}
-          />
-        ) : activeTab === 'ENTRY' ? (
-          <FastTransactionEntry
-            preselectedCustomerId={preselectedCustomerId}
-            onTransactionSaved={() => {}}
             isReadOnly={dbStatus.isReadOnly}
           />
         ) : (
