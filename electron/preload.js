@@ -49,6 +49,22 @@ contextBridge.exposeInMainWorld('api', {
   resendEmail: (queueId) => ipcRenderer.invoke('email:resend', queueId),
   backupDatabase: () => ipcRenderer.invoke('db:backup'),
 
+  // Email Queue Control
+  emailQueue: {
+    isPaused: () => ipcRenderer.invoke('email:is-paused'),
+    pause: () => ipcRenderer.invoke('email:pause-queue'),
+    resume: () => ipcRenderer.invoke('email:resume-queue'),
+    cancelAllPending: () => ipcRenderer.invoke('email:cancel-all-pending'),
+    cancel: (id) => ipcRenderer.invoke('email:cancel', id)
+  },
+
+  // System Logs & Diagnostics
+  logs: {
+    get: (params) => ipcRenderer.invoke('log:get', params),
+    clear: () => ipcRenderer.invoke('log:clear'),
+    openFolder: () => ipcRenderer.invoke('log:open-folder')
+  },
+
   // Print & PDF
   printStatement: (customerId) => ipcRenderer.invoke('app:print-statement', customerId),
   exportStatementPDF: (customerId) => ipcRenderer.invoke('app:export-pdf', { customerId })

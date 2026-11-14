@@ -6,6 +6,14 @@
  */
 
 const { execFile } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const { logger } = require('./logger');
+
+// Locate absolute path to powershell.exe on Windows to prevent any PATH environment issues
+const systemRoot = process.env.SystemRoot || process.env.windir || 'C:\\Windows';
+const defaultPsPath = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+const psExe = fs.existsSync(defaultPsPath) ? defaultPsPath : 'powershell';
 
 class InfosoftBridge {
   constructor(config = {}) {
@@ -15,6 +23,8 @@ class InfosoftBridge {
     this.prevYearDb = config.prevYearDb || 'dbc01y25';
     this.port = config.port || 49916;
     this.company = config.company || null; // e.g. '01', '02', or null for all
+    this.username = config.username || null;
+    this.password = config.password || null;
     this.activeWorkingServer = null;
   }
 
@@ -124,11 +134,16 @@ class InfosoftBridge {
 
   _runPowerShellQuery(serverStr, dbName, sqlText) {
     return new Promise((resolve, reject) => {
+      let authStr = 'Integrated Security=True;';
+      if (this.username && this.password) {
+        authStr = `User ID=${this.username};Password=${this.password};Integrated Security=False;`;
+      }
+
       let connStr = '';
       if (serverStr.includes(',') || serverStr.includes(':') || serverStr.toLowerCase().includes('localdb')) {
-        connStr = `Server=${serverStr};Database=${dbName};Integrated Security=True;TrustServerCertificate=True;Connect Timeout=8;ApplicationIntent=ReadOnly;`;
+        connStr = `Server=${serverStr};Database=${dbName};${authStr}TrustServerCertificate=True;Connect Timeout=8;ApplicationIntent=ReadOnly;`;
       } else {
-        connStr = `Server=${serverStr},${this.port};Database=${dbName};Integrated Security=True;TrustServerCertificate=True;Connect Timeout=8;ApplicationIntent=ReadOnly;`;
+        connStr = `Server=${serverStr},${this.port};Database=${dbName};${authStr}TrustServerCertificate=True;Connect Timeout=8;ApplicationIntent=ReadOnly;`;
       }
 
       const psScript = `
@@ -162,22 +177,37 @@ ${sqlText}
     } else {
         $rows | ConvertTo-Json -Depth 3 -Compress
     }
+} catch {
+    Write-Error $_.Exception.ToString()
+    exit 1
 } finally {
     if ($conn.State -eq 'Open') { $conn.Close() }
 }
 `;
 
-      execFile('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript], {
+      execFile(psExe, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript], {
         maxBuffer: 60 * 1024 * 1024,
-        encoding: 'utf8'
+        encoding: 'utf8',
+        windowsHide: true
       }, (err, stdout, stderr) => {
-        if (err) return reject(new Error(stderr || err.message));
+        if (err) {
+          const errorMsg = stderr ? stderr.trim() : (err.message || String(err));
+          logger.error('INFOSOFT', `Query execution failed on server [${serverStr}] db [${dbName}]`, {
+            error: errorMsg,
+            sqlSnippet: sqlText.slice(0, 150)
+          });
+          return reject(new Error(errorMsg));
+        }
         try {
           const trimmed = stdout.trim();
           if (!trimmed) return resolve([]);
           const parsed = JSON.parse(trimmed);
           resolve(Array.isArray(parsed) ? parsed : [parsed]);
         } catch (parseErr) {
+          logger.error('INFOSOFT', `Failed to parse SQL output as JSON`, {
+            parseError: parseErr.message,
+            rawOutput: stdout.slice(0, 300)
+          });
           reject(new Error(`Failed to parse SQL output: ${parseErr.message}\nRaw: ${stdout.slice(0, 300)}`));
         }
       });
@@ -188,20 +218,28 @@ ${sqlText}
    * Tests the connection to SQL Server and returns available databases
    */
   async testConnection() {
+    logger.info('INFOSOFT', `Testing connection to SQL Server... Server: ${this.server}, fallback: ${this.fallbackServer}`);
     try {
       const rows = await this.executeQuery("SELECT name FROM sys.databases WHERE name LIKE 'dbc%' OR name = 'sysdb'");
       const dbs = rows.map(r => r.name);
-      return {
+      const result = {
         success: true,
         activeServer: this.activeWorkingServer || this.server,
         databases: dbs,
         hasCurrentYear: dbs.includes(this.currentYearDb),
-        hasPrevYear: dbs.includes(this.prevYearDb)
+        hasPrevYear: dbs.includes(this.prevYearDb),
+        currentYearDb: this.currentYearDb,
+        prevYearDb: this.prevYearDb
       };
+      logger.info('INFOSOFT', 'SQL Server connection test succeeded', result);
+      return result;
     } catch (err) {
+      logger.error('INFOSOFT', 'SQL Server connection test failed', err);
       return {
         success: false,
-        error: err.message
+        error: err.message || String(err),
+        currentYearDb: this.currentYearDb,
+        prevYearDb: this.prevYearDb
       };
     }
   }

@@ -697,6 +697,36 @@ function markEmailFailed(id, errorMessage) {
   `).run(errorMessage, id);
 }
 
+function isEmailQueuePaused() {
+  return getSetting('email_queue_paused', '0') === '1';
+}
+
+function pauseEmailQueue() {
+  setSetting('email_queue_paused', '1');
+  return true;
+}
+
+function resumeEmailQueue() {
+  setSetting('email_queue_paused', '0');
+  return true;
+}
+
+function cancelPendingEmails() {
+  const db = getDb();
+  const res = db.prepare(`
+    UPDATE email_queue SET status = 'CANCELLED' WHERE status = 'PENDING'
+  `).run();
+  return res.changes;
+}
+
+function cancelEmail(id) {
+  const db = getDb();
+  const res = db.prepare(`
+    UPDATE email_queue SET status = 'CANCELLED' WHERE id = ? AND status = 'PENDING'
+  `).run(id);
+  return res.changes > 0;
+}
+
 // -------------------------------------------------------------
 // Settings & SMTP Storage
 // -------------------------------------------------------------
@@ -946,6 +976,11 @@ module.exports = {
   resendEmail,
   markEmailSent,
   markEmailFailed,
+  isEmailQueuePaused,
+  pauseEmailQueue,
+  resumeEmailQueue,
+  cancelPendingEmails,
+  cancelEmail,
   getSetting,
   setSetting,
   syncCustomerFromInfoSoft

@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const dbModule = require('../src/db/database');
 const { infosoftService } = require('../src/services/infosoftBridge');
+const { logger } = require('../src/services/logger');
 const { generateStatementHtml } = require('../src/reports/statementPdfTemplate');
 const { 
   startEmailWorker, 
@@ -254,6 +255,46 @@ function registerIpcHandlers() {
     return true;
   });
 
+  // Email Queue Pause & Cancellation Handlers
+  ipcMain.handle('email:is-paused', async () => dbModule.isEmailQueuePaused());
+  ipcMain.handle('email:pause-queue', async () => {
+    dbModule.pauseEmailQueue();
+    logger.info('EMAIL', 'Email queue has been paused by user');
+    return true;
+  });
+  ipcMain.handle('email:resume-queue', async () => {
+    dbModule.resumeEmailQueue();
+    logger.info('EMAIL', 'Email queue has been resumed by user');
+    processEmailQueue();
+    return true;
+  });
+  ipcMain.handle('email:cancel-all-pending', async () => {
+    const cancelledCount = dbModule.cancelPendingEmails();
+    logger.info('EMAIL', `Cancelled all pending emails (${cancelledCount} emails cancelled)`);
+    return cancelledCount;
+  });
+  ipcMain.handle('email:cancel', async (e, id) => {
+    const cancelled = dbModule.cancelEmail(id);
+    logger.info('EMAIL', `Cancelled email #${id}`);
+    return cancelled;
+  });
+
+  // System Logs Handlers
+  ipcMain.handle('log:get', async (e, params) => {
+    return logger.getLogs(params?.limit || 200, params?.category, params?.level);
+  });
+  ipcMain.handle('log:clear', async () => {
+    return logger.clearLogs();
+  });
+  ipcMain.handle('log:open-folder', async () => {
+    const dir = logger.getLogDir();
+    if (dir && fs.existsSync(dir)) {
+      shell.openPath(dir);
+      return true;
+    }
+    return false;
+  });
+
   ipcMain.handle('db:backup', async () => {
     if (!mainWindow) return null;
     const dateStr = new Date().toISOString().slice(0, 10);
@@ -368,7 +409,26 @@ function registerIpcHandlers() {
 // -------------------------------------------------------------
 app.whenReady().then(() => {
   ensureDirectories();
+  logger.init(dataDir);
   dbModule.openDatabase(defaultDbPath, false);
+
+  // Load saved InfoSoft configuration on startup
+  const savedInfosoftConfig = dbModule.getSetting('infosoft_config', null);
+  if (savedInfosoftConfig) {
+    try {
+      const conf = JSON.parse(savedInfosoftConfig);
+      if (conf.server) infosoftService.server = conf.server;
+      if (conf.currentYearDb) infosoftService.currentYearDb = conf.currentYearDb;
+      if (conf.prevYearDb) infosoftService.prevYearDb = conf.prevYearDb;
+      if (conf.company !== undefined) infosoftService.company = conf.company;
+      if (conf.username) infosoftService.username = conf.username;
+      if (conf.password) infosoftService.password = conf.password;
+      logger.info('INFOSOFT', 'Loaded saved InfoSoft configuration on startup', conf);
+    } catch (e) {
+      logger.error('INFOSOFT', 'Failed parsing saved InfoSoft configuration', e);
+    }
+  }
+
   registerIpcHandlers();
   createWindow();
   startEmailWorker(15000);

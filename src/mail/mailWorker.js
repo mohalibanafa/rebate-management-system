@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const dbModule = require('../db/database');
+const { logger } = require('../services/logger');
 
 let isWorkerRunning = false;
 let workerInterval = null;
@@ -171,6 +172,9 @@ async function sendWelcomeEmail(customerId) {
  */
 async function processEmailQueue() {
   if (isWorkerRunning) return;
+  if (dbModule.isEmailQueuePaused()) {
+    return;
+  }
   isWorkerRunning = true;
 
   try {
@@ -195,14 +199,14 @@ async function processEmailQueue() {
         });
 
         dbModule.markEmailSent(email.id);
-        console.log(`[Email Worker] Sent email #${email.id} to ${email.recipient_email}`);
+        logger.info('EMAIL', `Sent email #${email.id} to ${email.recipient_email}`);
       } catch (err) {
-        console.error(`[Email Worker] Error sending email #${email.id}:`, err.message);
+        logger.error('EMAIL', `Error sending email #${email.id} to ${email.recipient_email}`, err);
         dbModule.markEmailFailed(email.id, err.message);
       }
     }
   } catch (err) {
-    console.error('[Email Worker] Unexpected error in queue loop:', err.message);
+    logger.error('EMAIL', 'Unexpected error in email queue processing loop', err);
   } finally {
     isWorkerRunning = false;
   }
