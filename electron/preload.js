@@ -68,6 +68,6 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   // Print & PDF
-  printStatement: (customerId) => ipcRenderer.invoke('app:print-statement', customerId),
-  exportStatementPDF: (customerId) => ipcRenderer.invoke('app:export-pdf', { customerId })
+  printStatement: (customerId, options) => ipcRenderer.invoke('app:print-statement', customerId, options),
+  exportStatementPDF: (params) => ipcRenderer.invoke('app:export-pdf', typeof params === 'object' ? params : { customerId: params })
 });

@@ -116,8 +116,10 @@ function generateStatementHtml(statement, options = {}) {
 
     const descHtml = inv.description ? `<div class="inv-desc text-muted">${inv.description}</div>` : '';
 
+    const isExpanded = !options.expandedInvoiceIds || options.expandedInvoiceIds.includes(inv.id);
+
     // Returns under invoice
-    const returnsHtml = (inv.returns || []).map(ret => {
+    const returnsHtml = isExpanded ? (inv.returns || []).map(ret => {
       const yearInfo = ret.linked_invoice_year ? ` [سنة ${ret.linked_invoice_year}]` : '';
       const linkInfo = ret.linked_invoice_ref ? `مرتبط بالفاتورة ${ret.linked_invoice_ref}${yearInfo}` : '';
       return `
@@ -133,10 +135,10 @@ function generateStatementHtml(statement, options = {}) {
         <td colspan="6" class="text-muted text-sm">خصم من فئة: ${ret.category_name || (inv.category_id === 1 ? 'لا تشمل' : (inv.category_id === 2 ? 'مخفض' : 'عام'))}</td>
       </tr>
     `;
-    }).join('');
+    }).join('') : '';
 
     // Settlements under invoice
-    const settlementsHtml = (inv.settlements || []).map(st => {
+    const settlementsHtml = isExpanded ? (inv.settlements || []).map(st => {
       let badgeClass = 'badge-eligible';
       let badgeText = 'مؤهل للخصم (ضمن المهلة)';
       if (!st.is_eligible && !st.is_exception_applied) {
@@ -163,7 +165,7 @@ function generateStatementHtml(statement, options = {}) {
           </td>
         </tr>
       `;
-    }).join('');
+    }).join('') : '';
 
     return `
       <tbody class="invoice-group">

@@ -81,10 +81,38 @@
     background: white !important;
     color: black !important;
   }
-  .no-print {
+  .no-print,
+  header,
+  footer {
     display: none !important;
   }
   .print-only {
     display: block !important;
+  }
+
+  /* Statement modal print styles: converts on-screen modal into full printed document */
+  .statement-modal-overlay {
+    position: static !important;
+    background: white !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+    inset: auto !important;
+  }
+
+  .statement-modal-container {
+    max-width: 100% !important;
+    width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border-radius: 0 !important;
+  }
+
+  .statement-invoice-group {
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 }

@@ -318,11 +318,13 @@ function registerIpcHandlers() {
   });
 
   // Print & PDF using dedicated, standalone HTML template
-  ipcMain.handle('app:print-statement', async (e, customerId) => {
+  ipcMain.handle('app:print-statement', async (e, customerIdOrParams, maybeOptions) => {
     try {
+      let customerId = typeof customerIdOrParams === 'object' ? customerIdOrParams.customerId : customerIdOrParams;
+      let options = typeof customerIdOrParams === 'object' ? customerIdOrParams : (maybeOptions || {});
       const statement = dbModule.getCustomerStatement(customerId);
       const company = dbModule.getSetting('company_name', 'مؤسسة الحلول التجارية المتقدمة');
-      const html = generateStatementHtml(statement, { company_name: company });
+      const html = generateStatementHtml(statement, { ...options, company_name: company });
 
       const printWin = new BrowserWindow({
         show: false,
@@ -352,10 +354,12 @@ function registerIpcHandlers() {
   ipcMain.handle('app:export-pdf', async (e, params) => {
     try {
       let customerId;
+      let options = {};
       if (typeof params === 'number') {
         customerId = params;
       } else if (typeof params === 'object' && params?.customerId) {
         customerId = params.customerId;
+        options = params;
       }
 
       if (!customerId) {
@@ -364,7 +368,7 @@ function registerIpcHandlers() {
 
       const statement = dbModule.getCustomerStatement(customerId);
       const company = dbModule.getSetting('company_name', 'مؤسسة الحلول التجارية المتقدمة');
-      const html = generateStatementHtml(statement, { company_name: company });
+      const html = generateStatementHtml(statement, { ...options, company_name: company });
 
       const defaultName = `كشف_حساب_${statement.customer.accounting_system_id}_${statement.customer.name.replace(/[\/\\:*?"<>|]/g, '_')}.pdf`;
       const { filePath } = await dialog.showSaveDialog(mainWindow, {
